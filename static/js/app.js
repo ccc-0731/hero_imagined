@@ -7,14 +7,13 @@ document.addEventListener('DOMContentLoaded', () => {
       p.style.display = 'block';
       let v = 0;
       const t = setInterval(()=>{ v = Math.min(95, v+5); bar.style.width = v+'%'; }, 250);
-      // allow the actual submit navigate to server; progress will stop when page reloads
     });
   }
 
-  // Character generation
+  // Character and World generation
   const genCharacter = document.getElementById('gen-character');
   const genWorld = document.getElementById('gen-world');
-  const craftStory = document.getElementById('craft-story');
+  const doneButton = document.getElementById('done-button');
   let characterText = '';
   let worldText = '';
 
@@ -32,7 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const j = await resp.json();
       characterText = j.character;
       document.getElementById('character-output').textContent = characterText;
-      if (characterText && worldText) craftStory.disabled = false;
+      checkDoneButtonState();
     });
   }
 
@@ -42,21 +41,26 @@ document.addEventListener('DOMContentLoaded', () => {
       const form = document.getElementById('world-form');
       const data = {};
       Array.from(form.elements).forEach(f=>{ if(f.name) data[f.name]=f.value });
-      // include detected topic if present on page
-      const detected = document.querySelector('h2').textContent || '';
+      const detected = document.querySelector('.gradient-subtitle') ? document.querySelector('.gradient-subtitle').textContent : '';
       const resp = await fetch('/api/world',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({answers:data, detected:{topic:detected}})});
       const j = await resp.json();
       worldText = j.world;
       document.getElementById('world-output').textContent = worldText;
-      if (characterText && worldText) craftStory.disabled = false;
+      checkDoneButtonState();
     });
   }
 
-  if (craftStory) {
-    craftStory.addEventListener('click', async ()=>{
-      craftStory.disabled = true;
+  function checkDoneButtonState() {
+    if (characterText && worldText) {
+      doneButton.disabled = false;
+    }
+  }
+
+  if (doneButton) {
+    doneButton.addEventListener('click', async ()=>{
+      doneButton.disabled = true;
       document.getElementById('final-section').style.display = 'block';
-      document.getElementById('story-text').textContent = 'Crafting story...';
+      document.getElementById('story-text').textContent = 'Crafting your story...';
       const resp = await fetch('/generate_story',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({character:characterText, world:worldText})});
       const j = await resp.json();
       if (j.error){ document.getElementById('story-text').textContent = 'Error: '+JSON.stringify(j); return }
@@ -72,3 +76,4 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
 });
+

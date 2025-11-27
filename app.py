@@ -4,97 +4,88 @@ import base64
 import json
 from flask import Flask, render_template, request, jsonify, send_from_directory, url_for
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = Flask(__name__)
 app.config['STATIC_OUTPUT'] = os.path.join(app.root_path, 'static', 'output')
 os.makedirs(app.config['STATIC_OUTPUT'], exist_ok=True)
 
 # Environment-configured models / keys
-GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
-GEMINI_TEXT_MODEL = os.getenv('GEMINI_TEXT_MODEL', 'gemini')
-GEMINI_IMAGE_MODEL = os.getenv('GEMINI_IMAGE_MODEL', 'gemini-image')
+GOOGLE_API_KEY = os.getenv('GEMINI_API_KEY')
+GEMINI_TEXT_MODEL = os.getenv('GEMINI_TEXT_MODEL', 'gemini-2.0-flash')
+GEMINI_IMAGE_MODEL = os.getenv('GEMINI_IMAGE_MODEL', 'gemini-2.0-flash')
 ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY')
 
 def call_gemini_text(prompt, system=None):
-	"""Call Google Gemini text API if configured, otherwise return a mock reply."""
-	if not GOOGLE_API_KEY:
-		# simple mock: return trimmed prompt with a 'detected' type
-		if 'hero' in prompt.lower():
-			return {'topic':'fantasy','setting':prompt.strip()}
-		return {'topic':'general','setting':prompt.strip()}
-
-	# Real-call placeholder: user should replace with proper Google Generative API usage
-	url = 'https://generativeai.googleapis.com/v1beta2/models/{}/generate'.format(GEMINI_TEXT_MODEL)
-	headers = {'Authorization': f'Bearer {GOOGLE_API_KEY}', 'Content-Type': 'application/json'}
-	body = { 'prompt': { 'text': prompt } }
-	resp = requests.post(url, headers=headers, json=body, timeout=30)
-	resp.raise_for_status()
-	data = resp.json()
-	# attempt to extract text
-	text = data.get('candidates',[{}])[0].get('output','')
-	return {'raw': text}
+	"""Call Google Gemini text API via google.generativeai library."""
+	try:
+		import google.generativeai as genai
+		genai.configure(api_key=GOOGLE_API_KEY)
+		model = genai.GenerativeModel(GEMINI_TEXT_MODEL)
+		response = model.generate_content(prompt)
+		text = response.text if response else ''
+		return {'raw': text}
+	except Exception as e:
+		print(f'Gemini text error: {e}')
+		return {'raw': f'Error: {str(e)}'}
 
 def call_gemini_image(prompt, filename):
-	"""Call Gemini image generation or write a placeholder SVG to the static output and return path."""
+	"""Call Gemini image generation via google.generativeai library."""
 	out_path = os.path.join(app.config['STATIC_OUTPUT'], filename)
-	if not GOOGLE_API_KEY:
-		# Write a cute placeholder SVG (Ghibli-ish feeling prompt is used only for naming)
-		svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="768">
-  <rect width="100%" height="100%" fill="#f6ecd2"/>
-  <text x="50%" y="50%" font-size="36" text-anchor="middle" fill="#6b4f4f">Illustration placeholder</text>
-  <text x="50%" y="58%" font-size="20" text-anchor="middle" fill="#6b4f4f">{prompt[:80]}</text>
-</svg>'''
-		with open(out_path, 'w') as f:
-			f.write(svg)
-		return out_path
+	try:
+		import google.generativeai as genai
+		genai.configure(api_key=GOOGLE_API_KEY)
+		model = genai.GenerativeModel(GEMINI_IMAGE_MODEL)
+		response = model.generate_images(
+			prompt=prompt,
+			number_of_images=1,
+			width=1024,
+			height=768
+		)
+		if response and response.images:
+			img = response.images[0]
+			with open(out_path, 'wb') as f:
+				f.write(img.data)
+			return out_path
+		else:
+			raise RuntimeError('No image returned from Gemini')
+	except Exception as e:
+		print(f'Gemini image error: {e}')
+		raise
 
-	# Real call placeholder: user must adapt to the actual Google Images API
-	url = 'https://generativeai.googleapis.com/v1beta2/images:generate'
-	headers = {'Authorization': f'Bearer {GOOGLE_API_KEY}', 'Content-Type': 'application/json'}
-	body = {'prompt': prompt, 'model': GEMINI_IMAGE_MODEL, 'size':'1024x1024'}
-	resp = requests.post(url, headers=headers, json=body, timeout=60)
-	resp.raise_for_status()
-	data = resp.json()
-	# Expect base64-encoded image(s)
-	b64 = data.get('data',[{}])[0].get('b64_encoded_image')
-	if not b64:
-		raise RuntimeError('No image returned from Gemini')
-	with open(out_path, 'wb') as f:
-		f.write(base64.b64decode(b64))
-	return out_path
-
-SILENT_MP3_B64 = (
-	# 1-second silent mp3, tiny base64 payload used as fallback when ElevenLabs is not configured
-	"SUQzAwAAAAAA/////wAAACwAAAAAAABdAAABAAAACwAAAAAA"
-)
-
-def generate_audio_from_text(text, filename):
+def generate_bgm_with_lyrics(world_description, character_description, hero_name, filename):
+	"""Generate ~30 second BGM with lyrics about the hero's adventure using ElevenLabs."""
 	out_path = os.path.join(app.config['STATIC_OUTPUT'], filename)
-	if ELEVENLABS_API_KEY:
-		# Placeholder for real ElevenLabs API call
-		url = 'https://api.elevenlabs.io/v1/text-to-speech/default'
+	try:
+		# First, generate lyrics prompt via Gemini
+		lyrics_prompt = f"Create short, poetic song lyrics (~50-80 words) about a hero named {hero_name} embarking on an adventure in {world_description}. Style: epic, inspiring, whimsical. Only output the lyrics, no other text."
+		lyrics_resp = call_gemini_text(lyrics_prompt)
+		lyrics = lyrics_resp.get('raw', '').strip()
+		
+		if not lyrics:
+			raise RuntimeError('Failed to generate lyrics')
+		
+		# Generate music via ElevenLabs
+		url = 'https://api.elevenlabs.io/v1/music'
 		headers = {'xi-api-key': ELEVENLABS_API_KEY, 'Content-Type': 'application/json'}
-		body = {'text': text}
+		body = {
+			'text': lyrics,
+			'duration_seconds': 30,
+			'prompt': f'Epic, whimsical fantasy adventure theme for {world_description}'
+		}
 		resp = requests.post(url, headers=headers, json=body, stream=True, timeout=60)
 		if resp.status_code == 200:
 			with open(out_path, 'wb') as f:
 				for chunk in resp.iter_content(1024):
 					f.write(chunk)
-			return out_path
+			return out_path, lyrics
 		else:
-			# fall back to silent mp3 if ElevenLabs fails
-			pass
-
-	# write the silent mp3 fallback
-	try:
-		data = base64.b64decode(SILENT_MP3_B64 + '==')
-		with open(out_path, 'wb') as f:
-			f.write(data)
-	except Exception:
-		# as a last resort, create a tiny text file to indicate missing audio
-		with open(out_path, 'wb') as f:
-			f.write(b'')
-	return out_path
+			raise RuntimeError(f'ElevenLabs error: {resp.status_code} {resp.text}')
+	except Exception as e:
+		print(f'BGM generation error: {e}')
+		raise
 
 
 @app.route('/')
@@ -117,7 +108,7 @@ def api_character():
 	data = request.json or {}
 	answers = data.get('answers', {})
 	# Compose a prompt for Gemini
-	prompt = 'Create a complete character profile using these traits:\n'
+	prompt = 'Create a paragraph describing a complete character profile using these traits:\n'
 	for k,v in answers.items():
 		prompt += f"{k}: {v}\n"
 	resp = call_gemini_text(prompt)
@@ -144,28 +135,59 @@ def generate_story():
 	data = request.json or {}
 	character = data.get('character','')
 	world = data.get('world','')
-	prompt = f"Write an engaging ~1000-word short story about this hero. Character:\n{character}\nWorld:\n{world}\nStyle: cinematic, slightly whimsical, family-friendly."
+	
+	# Agent 3: Story Crafter
+	prompt = f"Write an engaging ~1000-word short story about an adventure of this hero in the world. The story should be thought-provoking and demonstrate deep philosophical ideas tied to the human condition. Character:\n{character}\nWorld:\n{world}\nStyle: cinematic, slightly whimsical."
 	resp = call_gemini_text(prompt)
 	story = resp.get('raw') or json.dumps(resp)
-
-	# Generate 3 illustrations
+	
+	# Agent 4a.1: Generate background illustration prompt (world-focused, no character)
+	bg_prompt_req = f"Generate a detailed visual description prompt for a Studio Ghibli-style fantasy world background. The prompt should describe the landscape, atmosphere, and environment based on this world description: {world}. Include details about colors, mood, and cinematic quality. Do not mention the character. Output only the visual prompt, no other text."
+	bg_prompt_resp = call_gemini_text(bg_prompt_req)
+	bg_prompt = bg_prompt_resp.get('raw', '').strip()
+	
+	# Agent 4a.1: Generate background illustration
+	if bg_prompt:
+		bg_fname = f"background_{uuid.uuid4().hex[:8]}.png"
+		bg_img_path = call_gemini_image(bg_prompt, bg_fname)
+		bg_img_url = url_for('static', filename=f'output/{os.path.basename(bg_img_path)}')
+	else:
+		bg_img_url = None
+	
+	# Agent 4a.2: Generate hero scene illustration prompt
+	hero_prompt_req = f"Generate a detailed visual description prompt for a Studio Ghibli-style cinematic scene illustration. The prompt should depict a dramatic moment of the hero in action, showing their unique features and abilities in the fantasy world. Include copyright-safe descriptions and emphasize artistic style over specific references. Character: {character}. Story excerpt: {story[:300]}. Output only the visual prompt, no other text."
+	hero_prompt_resp = call_gemini_text(hero_prompt_req)
+	hero_prompt = hero_prompt_resp.get('raw', '').strip()
+	
+	# Agent 4a.2: Generate hero scene illustration
 	images = []
-	for i in range(3):
-		fname = f"illustration_{uuid.uuid4().hex[:8]}.svg" if not GOOGLE_API_KEY else f"illustration_{uuid.uuid4().hex[:8]}.png"
-		img_path = call_gemini_image(f"Studio Ghibli style, cinematic, {story[:200]}", fname)
-		images.append(url_for('static', filename=f'output/{os.path.basename(img_path)}'))
-
-	# Generate audio (mp3)
-	audio_file = f"story_{uuid.uuid4().hex[:8]}.mp3"
-	audio_path = generate_audio_from_text(story, audio_file)
+	if hero_prompt:
+		hero_fname = f"hero_scene_{uuid.uuid4().hex[:8]}.png"
+		hero_img_path = call_gemini_image(hero_prompt, hero_fname)
+		hero_img_url = url_for('static', filename=f'output/{os.path.basename(hero_img_path)}')
+		images.append(hero_img_url)
+	if bg_img_url:
+		images.insert(0, bg_img_url)
+	
+	# Agent 4b: Generate BGM with lyrics (~30 seconds)
+	# Extract hero name from character description for personalization
+	hero_name = 'the hero'
+	try:
+		name_resp = call_gemini_text(f"Extract just the character's name from this description: {character}. Output only the name, nothing else.")
+		hero_name = name_resp.get('raw', '').strip() or 'the hero'
+	except:
+		pass
+	
+	audio_file = f"bgm_{uuid.uuid4().hex[:8]}.mp3"
+	audio_path, lyrics = generate_bgm_with_lyrics(world[:100], character[:100], hero_name, audio_file)
 	audio_url = url_for('static', filename=f'output/{os.path.basename(audio_path)}')
 
-	# Real-life analogy via Gemini
-	analogy_prompt = f"Infer the user's personality from this story and suggest real-life parallels and steps for them to embark on their own adventures:\n{story}"
+	# Agent 4c: Real-life analogy via Gemini
+	analogy_prompt = f"You are a thoughtful mentor speaking directly to the user. Infer the user's personality from this hero story (where the user is the main character) and suggest how they can embark on meaningful 'adventures' of their own in real life. Keep it inspiring and practical:\n{story}"
 	analogy_resp = call_gemini_text(analogy_prompt)
 	analogy = analogy_resp.get('raw') or json.dumps(analogy_resp)
 
-	return jsonify({'story': story, 'images': images, 'audio': audio_url, 'analogy': analogy})
+	return jsonify({'story': story, 'images': images, 'audio': audio_url, 'analogy': analogy, 'lyrics': lyrics})
 
 
 if __name__ == '__main__':

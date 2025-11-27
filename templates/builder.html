@@ -1,8 +1,8 @@
 {% extends 'base.html' %}
 {% block content %}
-  <section>
-    <h2>Design Your Hero — Detected: {{ detected.topic }}</h2>
-    <p><strong>Prompt:</strong> {{ raw_prompt }}</p>
+  <section class="builder-section">
+    <h2 class="gradient-title">Design Your Hero</h2>
+    <p class="subtitle gradient-subtitle">Detected: <strong>{{ detected.topic }}</strong></p>
     <div class="columns">
       <div class="column">
         <h3>Character Designer</h3>
@@ -17,7 +17,6 @@
           <input name="Worst Fear" placeholder="Worst fear">
           <input name="Quirk" placeholder="Quirk">
           <textarea name="Backstory" placeholder="Short backstory"></textarea>
-          <button type="button" id="gen-character">Generate Character</button>
         </form>
         <pre id="character-output" class="output"></pre>
       </div>
@@ -29,23 +28,25 @@
           <textarea name="Question2" placeholder="History and mythology"></textarea>
           <textarea name="Question3" placeholder="Legendary figures or heroes"></textarea>
           <textarea name="Question4" placeholder="Technology or magic details (if any)"></textarea>
-          <button type="button" id="gen-world">Generate World</button>
         </form>
         <pre id="world-output" class="output"></pre>
       </div>
     </div>
 
-    <div style="margin-top:20px;">
-      <button id="craft-story" disabled>Craft Story</button>
+    <div class="button-group">
+      <button id="gen-character">Generate Character</button>
+      <button id="gen-world">Generate World</button>
+      <button id="done-button" disabled class="done-btn">Done</button>
     </div>
 
     <div id="final-section" style="margin-top:30px; display:none">
-      <h2>Story</h2>
+      <h2 class="gradient-title">Your Story</h2>
       <article id="story-text" class="story"></article>
       <div id="images" class="images"></div>
       <div id="audio-player"></div>
-      <h3>Real-life Inspiration</h3>
+      <h3 class="gradient-title">Real-life Inspiration</h3>
       <div id="analogy" class="output"></div>
     </div>
   </section>
 {% endblock %}
+
