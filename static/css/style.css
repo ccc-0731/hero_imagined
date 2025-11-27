@@ -1,20 +1,177 @@
-body{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; margin:0; padding:20px; background:#fffaf0 }
-.container{ max-width:980px; margin:0 auto }
-header h1{ margin:0 0 20px }
-.gradient-title { background: linear-gradient(135deg, #f6a819, #f06d6d, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; margin:20px 0 10px }
-.gradient-subtitle { background: linear-gradient(135deg, #f6a819, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; font-size:0.95em; margin:0 0 20px }
-.builder-section { background-image: url('/static/images/builder-bg.png'); background-size: cover; background-attachment: fixed; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1) }
-.columns{ display:flex; gap:20px }
-.column{ flex:1; background:rgba(255,255,255,0.95); padding:12px; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.08) }
-input, textarea{ width:100%; margin:6px 0; padding:8px; box-sizing:border-box; border:1px solid #ddd; border-radius:4px }
-.output{ background:#f7f7f8; padding:8px; min-height:80px; overflow:auto; border-radius:4px }
-.story{ white-space:pre-wrap; background:#fffef8; padding:16px; border-radius:6px; line-height:1.6 }
-.images img.illustration{ width:30%; margin-right:8px; margin-bottom:8px; border-radius:6px }
-.progress{ height:12px; background:#eee; border-radius:8px; overflow:hidden; margin-top:10px }
-.progress .bar{ height:100%; width:0%; background:linear-gradient(90deg,#f6a819,#f06d6d); transition:width 0.2s }
-.button-group { margin-top:20px; display:flex; gap:10px; justify-content:center }
-button { padding:10px 20px; border:none; border-radius:6px; background:linear-gradient(135deg,#f6a819,#f06d6d); color:white; cursor:pointer; font-weight:bold; transition:transform 0.2s }
-button:hover:not(:disabled) { transform:scale(1.05) }
-button:disabled { opacity:0.5; cursor:not-allowed }
-.done-btn { background:linear-gradient(135deg,#8b5cf6,#f06d6d) }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; margin: 0; padding: 20px; background: #fffaf0; }
+.container { max-width: 1400px; margin: 0 auto; }
+header h1 { margin: 0 0 20px; }
+
+.gradient-title {
+  background: linear-gradient(135deg, #f6a819, #f06d6d, #8b5cf6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 20px 0 10px;
+}
+
+.gradient-subtitle {
+  background: linear-gradient(135deg, #f6a819, #8b5cf6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-size: 0.95em;
+  margin: 0 0 20px;
+}
+
+.builder-section {
+  background-image: url('/static/images/builder-bg.png');
+  background-size: cover;
+  background-attachment: fixed;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.columns {
+  display: flex;
+  gap: 20px;
+  max-width: 100%;
+}
+
+.column {
+  flex: 1;
+  max-width: 500px;
+  background: rgba(255,255,255,0.95);
+  padding: 16px;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  display: flex;
+  flex-direction: column;
+}
+
+.column h3 {
+  margin-top: 0;
+  color: #333;
+}
+
+.column form {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 16px;
+}
+
+input, textarea {
+  width: 100%;
+  margin: 8px 0;
+  padding: 12px;
+  box-sizing: border-box;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 0.95em;
+  line-height: 1.4;
+  resize: vertical;
+}
+
+textarea {
+  min-height: 100px;
+}
+
+.output-panel {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 2px solid #eee;
+}
+
+.output-panel h4 {
+  margin: 0 0 8px;
+  color: #666;
+  font-size: 0.9em;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.output {
+  background: #f7f7f8;
+  padding: 12px;
+  min-height: 120px;
+  max-height: 300px;
+  overflow-y: auto;
+  border-radius: 4px;
+  font-size: 0.85em;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.story {
+  white-space: pre-wrap;
+  background: #fffef8;
+  padding: 16px;
+  border-radius: 6px;
+  line-height: 1.8;
+}
+
+.images img.illustration {
+  width: 45%;
+  margin-right: 12px;
+  margin-bottom: 12px;
+  border-radius: 6px;
+  max-width: 500px;
+}
+
+.progress {
+  height: 12px;
+  background: #eee;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-top: 10px;
+}
+
+.progress .bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #f6a819, #f06d6d);
+  transition: width 0.2s;
+}
+
+.button-group {
+  margin-top: 20px;
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+button {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #f6a819, #f06d6d);
+  color: white;
+  cursor: pointer;
+  font-weight: bold;
+  font-size: 0.95em;
+  transition: transform 0.2s;
+}
+
+button:hover:not(:disabled) {
+  transform: scale(1.05);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.done-btn {
+  background: linear-gradient(135deg, #8b5cf6, #f06d6d);
+}
+
+#audio-player {
+  margin: 16px 0;
+}
+
+audio {
+  width: 100%;
+  max-width: 500px;
+}
+
 

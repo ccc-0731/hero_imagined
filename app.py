@@ -5,6 +5,9 @@ import json
 from flask import Flask, render_template, request, jsonify, send_from_directory, url_for
 import requests
 from dotenv import load_dotenv
+from google import genai
+from google.genai import types
+from PIL import Image
 
 load_dotenv()
 
@@ -35,11 +38,12 @@ def call_gemini_image(prompt, filename):
 	"""Call Gemini image generation via google.generativeai library."""
 	out_path = os.path.join(app.config['STATIC_OUTPUT'], filename)
 	try:
-		import google.generativeai as genai
+		client = genai.Client()
 		genai.configure(api_key=GOOGLE_API_KEY)
 		model = genai.GenerativeModel(GEMINI_IMAGE_MODEL)
-		response = model.generate_images(
-			prompt=prompt,
+		response = client.models.generate_content(
+			model=GEMINI_IMAGE_MODEL,
+			contents=[prompt],
 			number_of_images=1,
 			width=1024,
 			height=768
@@ -55,37 +59,55 @@ def call_gemini_image(prompt, filename):
 		print(f'Gemini image error: {e}')
 		raise
 
-def generate_bgm_with_lyrics(world_description, character_description, hero_name, filename):
-	"""Generate ~30 second BGM with lyrics about the hero's adventure using ElevenLabs."""
-	out_path = os.path.join(app.config['STATIC_OUTPUT'], filename)
-	try:
-		# First, generate lyrics prompt via Gemini
-		lyrics_prompt = f"Create short, poetic song lyrics (~50-80 words) about a hero named {hero_name} embarking on an adventure in {world_description}. Style: epic, inspiring, whimsical. Only output the lyrics, no other text."
-		lyrics_resp = call_gemini_text(lyrics_prompt)
-		lyrics = lyrics_resp.get('raw', '').strip()
-		
-		if not lyrics:
-			raise RuntimeError('Failed to generate lyrics')
-		
-		# Generate music via ElevenLabs
-		url = 'https://api.elevenlabs.io/v1/music'
-		headers = {'xi-api-key': ELEVENLABS_API_KEY, 'Content-Type': 'application/json'}
-		body = {
-			'text': lyrics,
-			'duration_seconds': 30,
-			'prompt': f'Epic, whimsical fantasy adventure theme for {world_description}'
-		}
-		resp = requests.post(url, headers=headers, json=body, stream=True, timeout=60)
-		if resp.status_code == 200:
-			with open(out_path, 'wb') as f:
-				for chunk in resp.iter_content(1024):
-					f.write(chunk)
-			return out_path, lyrics
-		else:
-			raise RuntimeError(f'ElevenLabs error: {resp.status_code} {resp.text}')
-	except Exception as e:
-		print(f'BGM generation error: {e}')
-		raise
+def generate_bgm_instrumental(world_description, character_description, hero_name, filename):
+    """
+    Generate ~30 seconds of instrumental background music using ElevenLabs.
+    Music is based on the worldbuilding and tone of the story.
+    """
+    out_path = os.path.join(app.config['STATIC_OUTPUT'], filename)
+
+    try:
+        # ---- Build a musical style prompt -------------------------------
+        # No lyrics! Instrument-only. Just an atmospheric vibe prompt.
+        music_prompt = (
+            f"Instrumental cinematic fantasy theme for a hero named {hero_name}. "
+            f"World: {world_description}. "
+			f"Character: {character_description}. "
+            f"Tone: emotional, adventurous, atmospheric, warm, slightly whimsical. "
+            f"Focus on orchestral textures, light percussion, gentle strings."
+        )
+
+        # ---- ElevenLabs compose endpoint --------------------------------
+        url = "https://api.elevenlabs.io/v1/music"
+        headers = {
+            "xi-api-key": ELEVENLABS_API_KEY,
+            "Content-Type": "application/json"
+        }
+
+        body = {
+            # Use the correct field names from ElevenLabs docs
+            "prompt": music_prompt,          # You can’t use both "prompt" + "text"
+            "music_length_ms": 30000,        # 30 seconds in ms
+            "output_format": "mp3_44100_128",
+            "force_instrumental": True       # Ensures no vocals
+        }
+
+        # ---- POST request (stream audio chunks) -------------------------
+        resp = requests.post(url, headers=headers, json=body, stream=True, timeout=90)
+
+        if resp.status_code == 200:
+            with open(out_path, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+            return out_path
+        else:
+            raise RuntimeError(f"ElevenLabs error {resp.status_code}: {resp.text}")
+
+    except Exception as e:
+        print(f"BGM generation error: {e}")
+        raise
+
 
 
 @app.route('/')
@@ -97,10 +119,59 @@ def index():
 def builder():
 	# Agent 1: Story Detector
 	user_prompt = request.form.get('hero_prompt','').strip()
-	guiding = "What kind of hero do you want to become?"
+	guiding = "Infer the general type of fiction setting (e.g., fantasy, sci-fi, steampunk, etc.) from this user prompt. Respond with only the genre name."
 	combined = f"{guiding}\nUser: {user_prompt}"
-	detected = call_gemini_text(combined)
+	detected_resp = call_gemini_text(combined)
+	detected_topic = detected_resp.get('raw', '').strip() or 'fantasy'
+	detected = {'topic': detected_topic}
 	return render_template('builder.html', detected=detected, raw_prompt=user_prompt)
+
+
+@app.route('/api/generate-questions', methods=['POST'])
+def api_generate_questions():
+	"""Generate dynamic character and world building questions based on user prompt and detected genre."""
+	data = request.json or {}
+	user_prompt = data.get('user_prompt', '')
+	detected_topic = data.get('detected_topic', 'fantasy')
+	
+	# Generate character questions
+	char_q_prompt = f"""Based on the user wanting to create a hero described as: "{user_prompt}"
+	In a {detected_topic} setting, generate exactly 8-10 specific, creative questions to help design a character. 
+	For each question, provide:
+	1. The question (numbered)
+	2. An inspirational example answer in brackets [like this]
+	
+	Format as a JSON object like: {{"questions": [{{"number": 1, "question": "...", "example": "..."}}]}}
+	Make questions cover: age, appearance, powers, personality, fears, goals, quirks, backstory, etc."""
+	
+	char_resp = call_gemini_text(char_q_prompt)
+	try:
+		char_data = json.loads(char_resp.get('raw', '{}'))
+		char_questions = char_data.get('questions', [])
+	except:
+		char_questions = []
+	
+	# Generate world building questions
+	world_q_prompt = f"""Based on a {detected_topic} world for the hero: "{user_prompt}"
+	Generate exactly 4-5 deep, world-building questions to flesh out the setting.
+	For each question, provide:
+	1. The question (numbered)
+	2. An inspirational example answer in brackets [like this]
+	
+	Format as JSON like: {{"questions": [{{"number": 1, "question": "...", "example": "..."}}]}}
+	Make questions cover: mythology, creatures, history, magic/tech, culture, landmarks, etc."""
+	
+	world_resp = call_gemini_text(world_q_prompt)
+	try:
+		world_data = json.loads(world_resp.get('raw', '{}'))
+		world_questions = world_data.get('questions', [])
+	except:
+		world_questions = []
+	
+	return jsonify({
+		'character_questions': char_questions,
+		'world_questions': world_questions
+	})
 
 
 @app.route('/api/character', methods=['POST'])
@@ -179,8 +250,9 @@ def generate_story():
 		pass
 	
 	audio_file = f"bgm_{uuid.uuid4().hex[:8]}.mp3"
-	audio_path, lyrics = generate_bgm_with_lyrics(world[:100], character[:100], hero_name, audio_file)
+	audio_path, lyrics = generate_bgm_instrumental(world[:100], character[:100], hero_name, audio_file)
 	audio_url = url_for('static', filename=f'output/{os.path.basename(audio_path)}')
+	lyrics = ""
 
 	# Agent 4c: Real-life analogy via Gemini
 	analogy_prompt = f"You are a thoughtful mentor speaking directly to the user. Infer the user's personality from this hero story (where the user is the main character) and suggest how they can embark on meaningful 'adventures' of their own in real life. Keep it inspiring and practical:\n{story}"

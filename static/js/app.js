@@ -10,6 +10,44 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Fetch and populate dynamic questions on builder page
+  const charQuestionsDiv = document.getElementById('character-questions');
+  const worldQuestionsDiv = document.getElementById('world-questions');
+  
+  if (charQuestionsDiv && worldQuestionsDiv) {
+    const detectedTopic = document.getElementById('detected-topic')?.textContent?.trim() || 'fantasy';
+    const rawPrompt = document.querySelector('[data-raw-prompt]')?.getAttribute('data-raw-prompt') || '';
+    
+    fetch('/api/generate-questions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_prompt: rawPrompt,
+        detected_topic: detectedTopic
+      })
+    })
+    .then(r => r.json())
+    .then(data => {
+      // Populate character questions
+      const charQs = data.character_questions || [];
+      charQuestionsDiv.innerHTML = charQs.map(q => `
+        <label>${q.question}</label>
+        <textarea name="char_q${q.number}" placeholder="${q.example}"></textarea>
+      `).join('');
+      
+      // Populate world questions
+      const worldQs = data.world_questions || [];
+      worldQuestionsDiv.innerHTML = worldQs.map(q => `
+        <label>${q.question}</label>
+        <textarea name="world_q${q.number}" placeholder="${q.example}"></textarea>
+      `).join('');
+    })
+    .catch(err => {
+      console.error('Error fetching questions:', err);
+      charQuestionsDiv.innerHTML = '<p>Error loading questions. Please refresh.</p>';
+    });
+  }
+
   // Character and World generation
   const genCharacter = document.getElementById('gen-character');
   const genWorld = document.getElementById('gen-world');
@@ -26,7 +64,7 @@ document.addEventListener('DOMContentLoaded', () => {
       showProgressFake(document.getElementById('character-output'));
       const form = document.getElementById('character-form');
       const data = {};
-      Array.from(form.elements).forEach(f=>{ if(f.name) data[f.name]=f.value });
+      Array.from(form.elements).forEach(f=>{ if(f.name && f.value) data[f.name]=f.value });
       const resp = await fetch('/api/character',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({answers:data})});
       const j = await resp.json();
       characterText = j.character;
@@ -40,8 +78,8 @@ document.addEventListener('DOMContentLoaded', () => {
       showProgressFake(document.getElementById('world-output'));
       const form = document.getElementById('world-form');
       const data = {};
-      Array.from(form.elements).forEach(f=>{ if(f.name) data[f.name]=f.value });
-      const detected = document.querySelector('.gradient-subtitle') ? document.querySelector('.gradient-subtitle').textContent : '';
+      Array.from(form.elements).forEach(f=>{ if(f.name && f.value) data[f.name]=f.value });
+      const detected = document.getElementById('detected-topic')?.textContent || '';
       const resp = await fetch('/api/world',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({answers:data, detected:{topic:detected}})});
       const j = await resp.json();
       worldText = j.world;

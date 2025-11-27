@@ -4,7 +4,7 @@
 
 A full agent-powered creative pipeline that guides you from a spark of imagination → to a fully illustrated cinematic story → to an immersive audio experience → to real-life inspiration.
 
-Built with **Flask**, **Python**, **Google Gemini** (text & image), **ElevenLabs** (audio), and **Anthropic Claude v0.73.0**, this project combines text, image, and audio generation into one cohesive interactive experience.
+Built with **Flask**, **Python**, **Google Gemini** (text & image), and **ElevenLabs** (audio), this project combines text, image, and audio generation into one cohesive interactive experience.
 
 ---
 
@@ -151,8 +151,7 @@ Reads the full story and infers the user's personality, suggesting how they can 
 ### LLM APIs
 
 * **Google Gemini 2.0 Flash** (text generation & image generation)
-* **Anthropic Claude 0.73.0** (optional safety checks)
-* **ElevenLabs Sound Generation API** (music + lyrics generation)
+* **ElevenLabs Sound Generation API** (music generation)
 
 ### Frontend
 
@@ -172,7 +171,6 @@ GEMINI_API_KEY=your_google_api_key_here
 GEMINI_TEXT_MODEL=gemini-2.0-flash
 GEMINI_IMAGE_MODEL=gemini-2.0-flash
 ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
-ANTHROPIC_API_KEY=your_anthropic_api_key_here  # optional
 ```
 
 See `.env.example` for a template.
