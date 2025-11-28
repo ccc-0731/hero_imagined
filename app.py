@@ -36,25 +36,33 @@ def call_gemini_text(prompt, system=None):
 
 
 def call_gemini_image(prompt, filename):
-	"""Call Gemini image generation via google.genai library."""
-	out_path = os.path.join(app.config['STATIC_OUTPUT'], filename)
-	try:
-		client = genai.Client(api_key=GOOGLE_API_KEY)
-		response = client.models.generate_images(
-			model=GEMINI_IMAGE_MODEL,
-			prompt=prompt,
-			config=types.GenerateImagesConfig(
-                number_of_images= 1,
-            )
-		)
-		# Extract the first image
-		image_bytes = response.generated_images[0].data
-		with open(out_path, 'wb') as f:
-			f.write(image_bytes)
-		return out_path
-	except Exception as e:
-		print(f'Gemini image error: {e}')
-		raise
+    """Call Gemini image generation via google.genai library."""
+    out_path = os.path.join(app.config['STATIC_OUTPUT'], filename)
+    try:
+        client = genai.Client(api_key=GOOGLE_API_KEY)
+        response = client.models.generate_content(
+            model=GEMINI_IMAGE_MODEL,
+            contents=[prompt]
+        )
+
+        # --- FIXED IMAGE EXTRACTION (matches official docs) ---
+        image_obj = None
+        for part in response.parts:
+            if part.inline_data is not None:
+                image_obj = part.as_image()
+                break  # first image only
+
+        if image_obj is None:
+            raise ValueError("No image returned from Gemini.")
+
+        # Save it
+        image_obj.save(out_path)
+
+        return out_path
+
+    except Exception as e:
+        print(f"Gemini image error: {e}")
+        raise
 
 def generate_bgm_instrumental(world_description, character_description, hero_name, filename):
     """
@@ -133,38 +141,67 @@ def api_generate_questions():
 	
 	# Generate character questions
 	char_q_prompt = f"""Based on the user wanting to create a hero described as: "{user_prompt}"
-	In a {detected_topic} setting, generate exactly 8-10 specific, creative questions to help design a character. 
-	For each question, provide:
-	1. The question (numbered)
-	2. An inspirational example answer in brackets [like this]
-	
-	Format as a JSON object like: {{"questions": [{{"number": 1, "question": "...", "example": "..."}}]}}
-	Make questions cover: age, appearance, powers, personality, fears, goals, quirks, backstory, etc."""
+In a {detected_topic} setting, generate 8-10 basic and generic questions to help design a character. The questions should be no longer than a sentence, and the answer is expected to be very brief.
+For each question, provide:
+1. The question (numbered)
+2. An inspirational example answer in parenthesis, (e.g. like this, including the).
+
+Format as a JSON object like: {{"questions": [{{"number": 1, "question": "...", "example": "..."}}]}}
+Make questions cover: age, gender, appearance, powers, personality, fears, goals, quirks, backstory, etc.
+
+IMPORTANT: Return ONLY valid JSON, no additional text before or after."""
 	
 	char_resp = call_gemini_text(char_q_prompt)
+	char_questions = []
 	try:
-		char_data = json.loads(char_resp.get('raw', '{}'))
-		char_questions = char_data.get('questions', [])
-	except:
-		char_questions = []
+		raw_text = char_resp.get('raw', '').strip()
+		print(f"[DEBUG] Raw character response: {raw_text[:200]}")
+		
+		# Try to extract JSON from the response
+		import re
+		json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
+		if json_match:
+			json_str = json_match.group(0)
+			char_data = json.loads(json_str)
+			char_questions = char_data.get('questions', [])
+			print(f"[DEBUG] Parsed {len(char_questions)} character questions")
+		else:
+			print("[ERROR] No JSON found in character response")
+	except Exception as e:
+		print(f"[ERROR] Failed to parse character questions: {e}")
 	
 	# Generate world building questions
 	world_q_prompt = f"""Based on a {detected_topic} world for the hero: "{user_prompt}"
-	Generate exactly 4-5 deep, world-building questions to flesh out the setting.
-	For each question, provide:
-	1. The question (numbered)
-	2. An inspirational example answer in brackets [like this]
-	
-	Format as JSON like: {{"questions": [{{"number": 1, "question": "...", "example": "..."}}]}}
-	Make questions cover: mythology, creatures, history, magic/tech, culture, landmarks, etc."""
+Generate exactly 4-5 simple and generic world-building questions. The questions and expected answers should be no longer than a sentence.
+For each question, provide:
+1. The question (numbered)
+2. An inspirational example answer in parenthesis, (e.g. like this, including the e.g.). 
+
+Format as JSON like: {{"questions": [{{"number": 1, "question": "...", "example": "..."}}]}}
+Make questions cover: mythology, creatures, history, magic/tech, culture, landmarks, etc.
+
+IMPORTANT: Return ONLY valid JSON, no additional text before or after."""
 	
 	world_resp = call_gemini_text(world_q_prompt)
+	world_questions = []
 	try:
-		world_data = json.loads(world_resp.get('raw', '{}'))
-		world_questions = world_data.get('questions', [])
-	except:
-		world_questions = []
+		raw_text = world_resp.get('raw', '').strip()
+		print(f"[DEBUG] Raw world response: {raw_text[:200]}")
+		
+		# Try to extract JSON from the response
+		import re
+		json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
+		if json_match:
+			json_str = json_match.group(0)
+			world_data = json.loads(json_str)
+			world_questions = world_data.get('questions', [])
+			print(f"[DEBUG] Parsed {len(world_questions)} world questions")
+		else:
+			print("[ERROR] No JSON found in world response")
+	except Exception as e:
+		print(f"[ERROR] Failed to parse world questions: {e}")
 	
+	print(f"[DEBUG] Final response: char={len(char_questions)}, world={len(world_questions)}")
 	return jsonify({
 		'character_questions': char_questions,
 		'world_questions': world_questions
@@ -176,7 +213,7 @@ def api_character():
 	data = request.json or {}
 	answers = data.get('answers', {})
 	# Compose a prompt for Gemini
-	prompt = 'Create a paragraph describing a complete character profile using these traits:\n'
+	prompt = 'Create a paragraph describing a complete character profile using these traits, including giving the character a suitable name:\n'
 	for k,v in answers.items():
 		prompt += f"{k}: {v}\n"
 	resp = call_gemini_text(prompt)
@@ -190,7 +227,7 @@ def api_world():
 	data = request.json or {}
 	answers = data.get('answers', {})
 	detected = data.get('detected', {})
-	prompt = 'Based on the world type: ' + str(detected.get('topic','unknown')) + ', create a paragraph describe the setting of this world:\n'
+	prompt = 'Based on the world type: ' + str(detected.get('topic','unknown')) + ', give the world a name and create a paragraph describe the setting of this world:\n'
 	for k,v in answers.items():
 		prompt += f"{k}: {v}\n"
 	resp = call_gemini_text(prompt)
@@ -236,6 +273,8 @@ def generate_story():
 		images.append(hero_img_url)
 	if bg_img_url:
 		images.insert(0, bg_img_url)
+		
+    #Agent 4b.1: Generate prompt for BGM with lyrics
 	
 	# Agent 4b: Generate BGM with lyrics (~30 seconds)
 	# Extract hero name from character description for personalization
@@ -260,4 +299,4 @@ def generate_story():
 
 
 if __name__ == '__main__':
-	app.run(port=8001, debug=True)
+	app.run(port=8000, debug=True)
