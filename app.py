@@ -241,61 +241,108 @@ def generate_story():
 	character = data.get('character','')
 	world = data.get('world','')
 	
-	# Agent 3: Story Crafter
-	prompt = f"Write an engaging ~1000-word short story about an adventure of this hero in the world. The story should be thought-provoking and demonstrate deep philosophical ideas tied to the human condition. Character:\n{character}\nWorld:\n{world}\nStyle: cinematic, slightly whimsical."
-	resp = call_gemini_text(prompt)
-	story = resp.get('raw') or json.dumps(resp)
+	result = {
+		'story': None,
+		'images': [],
+		'audio': None,
+		'analogy': None,
+		'error': None
+	}
 	
-	# Agent 4a.1: Generate background illustration prompt (world-focused, no character)
-	bg_prompt_req = f"Generate a detailed visual description prompt for a Studio Ghibli-style fantasy world background. The prompt should describe the landscape, atmosphere, and environment based on this world description: {world}. Include details about colors, mood, and cinematic quality. Do not mention the character. Output only the visual prompt, no other text."
-	bg_prompt_resp = call_gemini_text(bg_prompt_req)
-	bg_prompt = bg_prompt_resp.get('raw', '').strip()
+	# ============================================
+	# Step 1: Generate Story (CRITICAL - must succeed)
+	# ============================================
+	try:
+		prompt = f"Write an engaging ~1000-word short story about an adventure of this hero in the world. The story should be thought-provoking and demonstrate deep philosophical ideas tied to the human condition. Character:\n{character}\nWorld:\n{world}\nStyle: cinematic, slightly whimsical."
+		resp = call_gemini_text(prompt)
+		story = resp.get('raw') or json.dumps(resp)
+		result['story'] = story
+		print("[SUCCESS] Story generated")
+	except Exception as e:
+		print(f"[CRITICAL ERROR] Story generation failed: {e}")
+		result['error'] = f"Story generation failed: {str(e)}"
+		return jsonify(result), 500
 	
-	# Agent 4a.1: Generate background illustration
-	if bg_prompt:
-		bg_fname = f"background_{uuid.uuid4().hex[:8]}.png"
-		bg_img_path = call_gemini_image(bg_prompt, bg_fname)
-		bg_img_url = url_for('static', filename=f'output/{os.path.basename(bg_img_path)}')
-	else:
-		bg_img_url = None
-	
-	# Agent 4a.2: Generate hero scene illustration prompt
-	hero_prompt_req = f"Generate a detailed visual description prompt for a Studio Ghibli-style cinematic scene illustration. The prompt should depict a dramatic moment of the hero in action, showing their unique features and abilities in the fantasy world. Include copyright-safe descriptions and emphasize artistic style over specific references. Character: {character}. Story excerpt: {story[:300]}. Output only the visual prompt, no other text."
-	hero_prompt_resp = call_gemini_text(hero_prompt_req)
-	hero_prompt = hero_prompt_resp.get('raw', '').strip()
-	
-	# Agent 4a.2: Generate hero scene illustration
-	images = []
-	if hero_prompt:
-		hero_fname = f"hero_scene_{uuid.uuid4().hex[:8]}.png"
-		hero_img_path = call_gemini_image(hero_prompt, hero_fname)
-		hero_img_url = url_for('static', filename=f'output/{os.path.basename(hero_img_path)}')
-		images.append(hero_img_url)
-	if bg_img_url:
-		images.insert(0, bg_img_url)
-		
-    #Agent 4b.1: Generate prompt for BGM with lyrics
-	
-	# Agent 4b: Generate BGM with lyrics (~30 seconds)
-	# Extract hero name from character description for personalization
+	# ============================================
+	# Step 2: Extract Hero Name (Optional)
+	# ============================================
 	hero_name = 'the hero'
 	try:
 		name_resp = call_gemini_text(f"Extract just the character's name from this description: {character}. Output only the name, nothing else.")
 		hero_name = name_resp.get('raw', '').strip() or 'the hero'
-	except:
-		pass
+		print(f"[SUCCESS] Hero name extracted: {hero_name}")
+	except Exception as e:
+		print(f"[WARNING] Hero name extraction failed: {e}, using default")
+		hero_name = 'the hero'
 	
-	audio_file = f"bgm_{uuid.uuid4().hex[:8]}.mp3"
-	audio_path, lyrics = generate_bgm_instrumental(world[:100], character[:100], hero_name, audio_file)
-	audio_url = url_for('static', filename=f'output/{os.path.basename(audio_path)}')
-	lyrics = ""
-
-	# Agent 4c: Real-life analogy via Gemini
-	analogy_prompt = f"You are a thoughtful mentor speaking directly to the user. Infer the user's personality from this hero story (where the user is the main character) and suggest how they can embark on meaningful 'adventures' of their own in real life. Keep it inspiring and practical:\n{story}"
-	analogy_resp = call_gemini_text(analogy_prompt)
-	analogy = analogy_resp.get('raw') or json.dumps(analogy_resp)
-
-	return jsonify({'story': story, 'images': images, 'audio': audio_url, 'analogy': analogy, 'lyrics': lyrics})
+	# ============================================
+	# Step 3: Generate Background Image Prompt (Optional)
+	# ============================================
+	bg_img_url = None
+	try:
+		bg_prompt_req = f"Generate a detailed visual description prompt for a Studio Ghibli-style fantasy world background. The prompt should describe the landscape, atmosphere, and environment based on this world description: {world}. Include details about colors, mood, and cinematic quality. Do not mention the character. Output only the visual prompt, no other text."
+		bg_prompt_resp = call_gemini_text(bg_prompt_req)
+		bg_prompt = bg_prompt_resp.get('raw', '').strip()
+		
+		# Step 3b: Generate background illustration (only if prompt was generated)
+		if bg_prompt:
+			bg_fname = f"background_{uuid.uuid4().hex[:8]}.png"
+			bg_img_path = call_gemini_image(bg_prompt, bg_fname)
+			bg_img_url = url_for('static', filename=f'output/{os.path.basename(bg_img_path)}')
+			result['images'].append(bg_img_url)
+			print("[SUCCESS] Background image generated")
+		else:
+			print("[WARNING] Background image prompt generation returned empty")
+	except Exception as e:
+		print(f"[WARNING] Background image generation failed: {e}, continuing without it")
+	
+	# ============================================
+	# Step 4: Generate Hero Scene Image Prompt (Optional)
+	# ============================================
+	try:
+		hero_prompt_req = f"Generate a detailed visual description prompt for a Studio Ghibli-style cinematic scene illustration. The prompt should depict a dramatic moment of the hero in action, showing their unique features and abilities in the fantasy world. Include copyright-safe descriptions and emphasize artistic style over specific references. Character: {character}. Story excerpt: {story[:300]}. Output only the visual prompt, no other text."
+		hero_prompt_resp = call_gemini_text(hero_prompt_req)
+		hero_prompt = hero_prompt_resp.get('raw', '').strip()
+		
+		# Step 4b: Generate hero scene illustration (only if prompt was generated)
+		if hero_prompt:
+			hero_fname = f"hero_scene_{uuid.uuid4().hex[:8]}.png"
+			hero_img_path = call_gemini_image(hero_prompt, hero_fname)
+			hero_img_url = url_for('static', filename=f'output/{os.path.basename(hero_img_path)}')
+			result['images'].insert(0, hero_img_url)
+			print("[SUCCESS] Hero scene image generated")
+		else:
+			print("[WARNING] Hero scene image prompt generation returned empty")
+	except Exception as e:
+		print(f"[WARNING] Hero scene image generation failed: {e}, continuing without it")
+	
+	# ============================================
+	# Step 5: Generate BGM (Optional)
+	# ============================================
+	try:
+		audio_file = f"bgm_{uuid.uuid4().hex[:8]}.mp3"
+		audio_path, lyrics = generate_bgm_instrumental(world[:100], character[:100], hero_name, audio_file)
+		audio_url = url_for('static', filename=f'output/{os.path.basename(audio_path)}')
+		result['audio'] = audio_url
+		print("[SUCCESS] BGM generated")
+	except Exception as e:
+		print(f"[WARNING] BGM generation failed: {e}, continuing without it")
+		result['audio'] = None
+	
+	# ============================================
+	# Step 6: Generate Real-life Analogy (Optional)
+	# ============================================
+	try:
+		analogy_prompt = f"You are a thoughtful mentor speaking directly to the user. Infer the user's personality from this hero story (where the user is the main character) and suggest how they can embark on meaningful 'adventures' of their own in real life. Keep it inspiring and practical:\n{story}"
+		analogy_resp = call_gemini_text(analogy_prompt)
+		analogy = analogy_resp.get('raw') or json.dumps(analogy_resp)
+		result['analogy'] = analogy
+		print("[SUCCESS] Analogy generated")
+	except Exception as e:
+		print(f"[WARNING] Analogy generation failed: {e}, continuing without it")
+		result['analogy'] = None
+	
+	return jsonify(result)
 
 
 if __name__ == '__main__':
