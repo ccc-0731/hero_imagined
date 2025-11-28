@@ -7,7 +7,6 @@ import requests
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
-from PIL import Image
 
 load_dotenv()
 
@@ -17,44 +16,42 @@ os.makedirs(app.config['STATIC_OUTPUT'], exist_ok=True)
 
 # Environment-configured models / keys
 GOOGLE_API_KEY = os.getenv('GEMINI_API_KEY')
-GEMINI_TEXT_MODEL = os.getenv('GEMINI_TEXT_MODEL', 'gemini-2.0-flash')
-GEMINI_IMAGE_MODEL = os.getenv('GEMINI_IMAGE_MODEL', 'gemini-2.0-flash')
+GEMINI_TEXT_MODEL = os.getenv('GEMINI_TEXT_MODEL', 'gemini-2.5-flash')
+GEMINI_IMAGE_MODEL = os.getenv('GEMINI_IMAGE_MODEL', "gemini-2.5-flash-image")
 ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY')
 
 def call_gemini_text(prompt, system=None):
-	"""Call Google Gemini text API via google.generativeai library."""
+	"""Call Google Gemini text API via google.genai library."""
 	try:
-		import google.generativeai as genai
-		genai.configure(api_key=GOOGLE_API_KEY)
-		model = genai.GenerativeModel(GEMINI_TEXT_MODEL)
-		response = model.generate_content(prompt)
+		client = genai.Client(api_key=GOOGLE_API_KEY)
+		response = client.models.generate_content(
+			model=GEMINI_TEXT_MODEL,
+			contents=prompt
+		)
 		text = response.text if response else ''
 		return {'raw': text}
 	except Exception as e:
 		print(f'Gemini text error: {e}')
 		return {'raw': f'Error: {str(e)}'}
 
+
 def call_gemini_image(prompt, filename):
-	"""Call Gemini image generation via google.generativeai library."""
+	"""Call Gemini image generation via google.genai library."""
 	out_path = os.path.join(app.config['STATIC_OUTPUT'], filename)
 	try:
-		client = genai.Client()
-		genai.configure(api_key=GOOGLE_API_KEY)
-		model = genai.GenerativeModel(GEMINI_IMAGE_MODEL)
-		response = client.models.generate_content(
+		client = genai.Client(api_key=GOOGLE_API_KEY)
+		response = client.models.generate_images(
 			model=GEMINI_IMAGE_MODEL,
-			contents=[prompt],
-			number_of_images=1,
-			width=1024,
-			height=768
+			prompt=prompt,
+			config=types.GenerateImagesConfig(
+                number_of_images= 1,
+            )
 		)
-		if response and response.images:
-			img = response.images[0]
-			with open(out_path, 'wb') as f:
-				f.write(img.data)
-			return out_path
-		else:
-			raise RuntimeError('No image returned from Gemini')
+		# Extract the first image
+		image_bytes = response.generated_images[0].data
+		with open(out_path, 'wb') as f:
+			f.write(image_bytes)
+		return out_path
 	except Exception as e:
 		print(f'Gemini image error: {e}')
 		raise
@@ -100,7 +97,7 @@ def generate_bgm_instrumental(world_description, character_description, hero_nam
                 for chunk in resp.iter_content(chunk_size=8192):
                     if chunk:
                         f.write(chunk)
-            return out_path
+            return out_path, ""
         else:
             raise RuntimeError(f"ElevenLabs error {resp.status_code}: {resp.text}")
 
@@ -193,7 +190,7 @@ def api_world():
 	data = request.json or {}
 	answers = data.get('answers', {})
 	detected = data.get('detected', {})
-	prompt = 'Based on the world type: ' + str(detected.get('topic','unknown')) + '\n'
+	prompt = 'Based on the world type: ' + str(detected.get('topic','unknown')) + ', create a paragraph describe the setting of this world:\n'
 	for k,v in answers.items():
 		prompt += f"{k}: {v}\n"
 	resp = call_gemini_text(prompt)
