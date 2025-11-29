@@ -10,9 +10,10 @@ from google.genai import types
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, PageBreak, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, PageBreak
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
+from reportlab.lib.utils import ImageReader
 from io import BytesIO
 from PIL import Image as PILImage
 
@@ -288,7 +289,7 @@ def generate_story():
 	# ============================================
 	bg_img_url = None
 	try:
-		bg_prompt_req = f"Generate a detailed visual description prompt for a Studio Ghibli-style fantasy world background. The prompt should describe the landscape, atmosphere, and environment based on this world description: {world}. Include details about colors, mood, and cinematic quality. Do not mention the character. Output only the visual prompt, no other text."
+		bg_prompt_req = f"Generate a detailed visual description prompt for a Studio Ghibli-style fantasy world background. The prompt should describe the landscape, atmosphere, and environment based on this world description: {world}. Include details about colors, mood, and cinematic quality. Must say explicitly Studio Ghibli Style. Do not mention the character. Output only the visual prompt, no other text."
 		bg_prompt_resp = call_gemini_text(bg_prompt_req)
 		bg_prompt = bg_prompt_resp.get('raw', '').strip()
 		
@@ -308,7 +309,7 @@ def generate_story():
 	# Step 4: Generate Hero Scene Image Prompt (Optional)
 	# ============================================
 	try:
-		hero_prompt_req = f"Generate a detailed visual description prompt for a Studio Ghibli-style cinematic scene illustration. The prompt should depict a dramatic moment of the hero in action, showing their unique features and abilities in the fantasy world. Include copyright-safe descriptions and emphasize artistic style over specific references. Character: {character}. Story excerpt: {story[:300]}. Output only the visual prompt, no other text."
+		hero_prompt_req = f"Generate a detailed visual description prompt for a Studio Ghibli-style cinematic scene illustration. The prompt should depict a dramatic moment of the hero in action, showing their unique features and abilities in the fantasy world. Include copyright-safe descriptions and emphasize artistic style over specific references. Character: {character}. Story excerpt: {story[:300]}. Must say explicitly Studio Ghibli style. Output only the visual prompt, no other text."
 		hero_prompt_resp = call_gemini_text(hero_prompt_req)
 		hero_prompt = hero_prompt_resp.get('raw', '').strip()
 		
@@ -378,7 +379,8 @@ def generate_pdf():
 	hero_name = data.get('hero_name', 'The Hero')
 	analogy = data.get('analogy', '')
 	images = data.get('images', [])
-	bg_image_path = data.get('bg_image', None)
+	# Use first image (world/background) for page background, not the hero image
+	bg_image_path = images[1] if images and len(images) > 1 else None
 	
 	try:
 		# Create PDF in memory
@@ -429,71 +431,96 @@ def generate_pdf():
 		
 		# Character section
 		story_elements.append(Paragraph("Character Profile", heading_style))
-		story_elements.append(Paragraph(character, body_style))
+		for para in [p.strip() for p in character.split('\n\n') if p.strip()]:
+			story_elements.append(Paragraph(para, body_style))
 		story_elements.append(Spacer(1, 0.2*inch))
 		
 		# World section
 		story_elements.append(Paragraph("World Description", heading_style))
-		story_elements.append(Paragraph(world, body_style))
+		for para in [p.strip() for p in world.split('\n\n') if p.strip()]:
+			story_elements.append(Paragraph(para, body_style))
 		story_elements.append(Spacer(1, 0.2*inch))
 		
 		# Story section
 		story_elements.append(Paragraph("The Story", heading_style))
-		story_elements.append(Paragraph(story, body_style))
+		for para in [p.strip() for p in story.split('\n\n') if p.strip()]:
+			story_elements.append(Paragraph(para, body_style))
 		story_elements.append(Spacer(1, 0.3*inch))
 		
-		# Background image (if available)
+		# Prepare optional transparent background image (15% opacity)
+		bg_image_reader = None
 		if bg_image_path:
 			try:
-				# Handle both local paths and web URLs
+				# Resolve local static paths
 				if bg_image_path.startswith('http'):
 					img_response = requests.get(bg_image_path, timeout=5)
-					img_buffer = BytesIO(img_response.content)
-					img = PILImage.open(img_buffer)
+					img = PILImage.open(BytesIO(img_response.content))
 				else:
-					img = PILImage.open(bg_image_path)
+					if bg_image_path.startswith('/'):
+						local_path = os.path.join(app.root_path, bg_image_path.lstrip('/'))
+					else:
+						local_path = bg_image_path
+					img = PILImage.open(local_path)
 				
-				img.thumbnail((6*inch, 4*inch), PILImage.Resampling.LANCZOS)
-				img_temp = BytesIO()
-				img.save(img_temp, format='PNG')
-				img_temp.seek(0)
+				# Convert to RGBA and apply 15% opacity
+				if img.mode != 'RGBA':
+					img = img.convert('RGBA')
 				
-				story_elements.append(Paragraph("World Visualization", heading_style))
-				story_elements.append(Image(img_temp, width=5*inch, height=3*inch))
-				story_elements.append(Spacer(1, 0.2*inch))
+				r, g, b, a = img.split()
+				a = a.point(lambda p: int(p * 0.15))
+				img.putalpha(a)
+				
+				img_buffer = BytesIO()
+				img.save(img_buffer, format='PNG')
+				img_buffer.seek(0)
+				bg_image_reader = ImageReader(img_buffer)
 			except Exception as e:
-				print(f"[WARNING] Could not include background image: {e}")
+				print(f"[WARNING] Could not prepare transparent background image: {e}")
 		
-		# Hero scene image (if available)
+		# Hero scene image (if available - use second image if it exists)
 		if images and len(images) > 0:
-			hero_img_url = images[-1] if len(images) > 1 else images[0]
+			hero_img_url = images[0]
 			try:
 				if hero_img_url.startswith('http'):
 					img_response = requests.get(hero_img_url, timeout=5)
 					img_buffer = BytesIO(img_response.content)
-					img = PILImage.open(img_buffer)
+					hero_reader = ImageReader(img_buffer)
+					story_elements.append(Paragraph("The Hero's Moment", heading_style))
+					story_elements.append(Image(img_buffer, width=5*inch, height=3*inch))
 				else:
-					img = PILImage.open(hero_img_url)
-				
-				img.thumbnail((6*inch, 4*inch), PILImage.Resampling.LANCZOS)
-				img_temp = BytesIO()
-				img.save(img_temp, format='PNG')
-				img_temp.seek(0)
-				
-				story_elements.append(Paragraph("The Hero's Moment", heading_style))
-				story_elements.append(Image(img_temp, width=5*inch, height=3*inch))
+					if hero_img_url.startswith('/'):
+						local_path = os.path.join(app.root_path, hero_img_url.lstrip('/'))
+					else:
+						local_path = hero_img_url
+					img = PILImage.open(local_path)
+					img_temp = BytesIO()
+					img.save(img_temp, format='PNG')
+					img_temp.seek(0)
+					hero_reader = ImageReader(img_temp)
+					story_elements.append(Paragraph("The Hero's Moment", heading_style))
+					story_elements.append(Image(img_temp, width=5*inch, height=3*inch))
 				story_elements.append(Spacer(1, 0.3*inch))
 			except Exception as e:
 				print(f"[WARNING] Could not include hero image: {e}")
 		
-		# Analogy section
+		# Analogy section (renamed to "In Real Life")
 		if analogy:
 			story_elements.append(PageBreak())
-			story_elements.append(Paragraph("Your Real-Life Adventure", heading_style))
-			story_elements.append(Paragraph(analogy, body_style))
+			story_elements.append(Paragraph("In Real Life", heading_style))
+			for para in [p.strip() for p in analogy.split('\n\n') if p.strip()]:
+				story_elements.append(Paragraph(para, body_style))
 		
-		# Build the PDF
-		doc.build(story_elements)
+		# Draw semi-transparent background on each page
+		def _draw_background(canvas_obj, doc_obj):
+			if bg_image_reader:
+				page_width, page_height = letter
+				try:
+					canvas_obj.drawImage(bg_image_reader, 0, 0, width=page_width, height=page_height)
+				except Exception:
+					pass
+		
+		# Build the PDF with background on every page
+		doc.build(story_elements, onFirstPage=_draw_background, onLaterPages=_draw_background)
 		pdf_buffer.seek(0)
 		
 		# Return the PDF file
