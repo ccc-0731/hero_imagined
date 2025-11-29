@@ -4,3 +4,5 @@ python-dotenv
 google-generativeai
 google-genai
 elevenlabs
+reportlab
+Pillow

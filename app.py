@@ -7,6 +7,14 @@ import requests
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, PageBreak, Table, TableStyle
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
+from io import BytesIO
+from PIL import Image as PILImage
 
 load_dotenv()
 
@@ -92,7 +100,7 @@ def generate_bgm_instrumental(world_description, character_description, hero_nam
         body = {
             # Use the correct field names from ElevenLabs docs
             "prompt": music_prompt,          # You can’t use both "prompt" + "text"
-            "music_length_ms": 30000,        # 30 seconds in ms
+            "music_length_ms": 60000,        # 60 seconds in ms
             "output_format": "mp3_44100_128",
             "force_instrumental": True       # Ensures no vocals
         }
@@ -333,7 +341,7 @@ def generate_story():
 	# Step 6: Generate Real-life Analogy (Optional)
 	# ============================================
 	try:
-		analogy_prompt = f"You are a thoughtful mentor speaking directly to the user. Infer the user's personality from this hero story (where the user is the main character) and suggest how they can embark on meaningful 'adventures' of their own in real life. Keep it inspiring and practical:\n{story}"
+		analogy_prompt = f"Extract the central theme of this hero story. Then speak directly to the person who imagined this hero (not the character, but the creator/author). Suggest how this story's theme and the hero's journey can inspire them to embark on meaningful 'adventures' of their own in real life. Be specific about the life lessons and practical ways they can embody their hero's spirit. Hero name: {hero_name}. Story:\n{story}"
 		analogy_resp = call_gemini_text(analogy_prompt)
 		analogy = analogy_resp.get('raw') or json.dumps(analogy_resp)
 		result['analogy'] = analogy
@@ -342,7 +350,163 @@ def generate_story():
 		print(f"[WARNING] Analogy generation failed: {e}, continuing without it")
 		result['analogy'] = None
 	
+	# Add progress tracking info
+	result['steps'] = [
+		{'name': 'Story Generation', 'status': 'complete'},
+		{'name': 'Hero Name Extraction', 'status': 'complete'},
+		{'name': 'Background Image', 'status': 'complete' if bg_img_url else 'skipped'},
+		{'name': 'Hero Scene Image', 'status': 'complete' if (len(result['images']) > 1 or (len(result['images']) == 1 and not bg_img_url)) else 'skipped'},
+		{'name': 'Background Music', 'status': 'complete' if result['audio'] else 'skipped'},
+		{'name': 'Real-life Inspiration', 'status': 'complete' if result['analogy'] else 'skipped'}
+	]
+	result['character'] = character
+	result['world'] = world
+	result['hero_name'] = hero_name
+	
 	return jsonify(result)
+
+
+@app.route('/generate_pdf', methods=['POST'])
+def generate_pdf():
+	"""Generate a beautifully formatted PDF of the story, character, world, and images."""
+	from flask import send_file
+	
+	data = request.json or {}
+	story = data.get('story', '')
+	character = data.get('character', '')
+	world = data.get('world', '')
+	hero_name = data.get('hero_name', 'The Hero')
+	analogy = data.get('analogy', '')
+	images = data.get('images', [])
+	bg_image_path = data.get('bg_image', None)
+	
+	try:
+		# Create PDF in memory
+		pdf_buffer = BytesIO()
+		doc = SimpleDocTemplate(pdf_buffer, pagesize=letter,
+			leftMargin=0.5*inch, rightMargin=0.5*inch,
+			topMargin=0.5*inch, bottomMargin=0.5*inch)
+		
+		# Custom styles with gradients simulated through colors
+		styles = getSampleStyleSheet()
+		
+		# Gradient-like title style
+		title_style = ParagraphStyle(
+			'CustomTitle',
+			parent=styles['Heading1'],
+			fontSize=28,
+			textColor=colors.HexColor("#f89945"),
+			spaceAfter=12,
+			alignment=TA_CENTER,
+			fontName='Helvetica-Bold'
+		)
+		
+		heading_style = ParagraphStyle(
+			'CustomHeading',
+			parent=styles['Heading2'],
+			fontSize=16,
+			textColor=colors.HexColor("#f6c35c"),
+			spaceAfter=10,
+			spaceBefore=12,
+			fontName='Helvetica-Bold'
+		)
+		
+		body_style = ParagraphStyle(
+			'CustomBody',
+			parent=styles['Normal'],
+			fontSize=10,
+			alignment=TA_JUSTIFY,
+			spaceAfter=12,
+			leading=14
+		)
+		
+		# Build PDF content
+		story_elements = []
+		
+		# Title
+		story_elements.append(Paragraph(f"{hero_name}'s Adventure", title_style))
+		story_elements.append(Spacer(1, 0.2*inch))
+		
+		# Character section
+		story_elements.append(Paragraph("Character Profile", heading_style))
+		story_elements.append(Paragraph(character, body_style))
+		story_elements.append(Spacer(1, 0.2*inch))
+		
+		# World section
+		story_elements.append(Paragraph("World Description", heading_style))
+		story_elements.append(Paragraph(world, body_style))
+		story_elements.append(Spacer(1, 0.2*inch))
+		
+		# Story section
+		story_elements.append(Paragraph("The Story", heading_style))
+		story_elements.append(Paragraph(story, body_style))
+		story_elements.append(Spacer(1, 0.3*inch))
+		
+		# Background image (if available)
+		if bg_image_path:
+			try:
+				# Handle both local paths and web URLs
+				if bg_image_path.startswith('http'):
+					img_response = requests.get(bg_image_path, timeout=5)
+					img_buffer = BytesIO(img_response.content)
+					img = PILImage.open(img_buffer)
+				else:
+					img = PILImage.open(bg_image_path)
+				
+				img.thumbnail((6*inch, 4*inch), PILImage.Resampling.LANCZOS)
+				img_temp = BytesIO()
+				img.save(img_temp, format='PNG')
+				img_temp.seek(0)
+				
+				story_elements.append(Paragraph("World Visualization", heading_style))
+				story_elements.append(Image(img_temp, width=5*inch, height=3*inch))
+				story_elements.append(Spacer(1, 0.2*inch))
+			except Exception as e:
+				print(f"[WARNING] Could not include background image: {e}")
+		
+		# Hero scene image (if available)
+		if images and len(images) > 0:
+			hero_img_url = images[-1] if len(images) > 1 else images[0]
+			try:
+				if hero_img_url.startswith('http'):
+					img_response = requests.get(hero_img_url, timeout=5)
+					img_buffer = BytesIO(img_response.content)
+					img = PILImage.open(img_buffer)
+				else:
+					img = PILImage.open(hero_img_url)
+				
+				img.thumbnail((6*inch, 4*inch), PILImage.Resampling.LANCZOS)
+				img_temp = BytesIO()
+				img.save(img_temp, format='PNG')
+				img_temp.seek(0)
+				
+				story_elements.append(Paragraph("The Hero's Moment", heading_style))
+				story_elements.append(Image(img_temp, width=5*inch, height=3*inch))
+				story_elements.append(Spacer(1, 0.3*inch))
+			except Exception as e:
+				print(f"[WARNING] Could not include hero image: {e}")
+		
+		# Analogy section
+		if analogy:
+			story_elements.append(PageBreak())
+			story_elements.append(Paragraph("Your Real-Life Adventure", heading_style))
+			story_elements.append(Paragraph(analogy, body_style))
+		
+		# Build the PDF
+		doc.build(story_elements)
+		pdf_buffer.seek(0)
+		
+		# Return the PDF file
+		return send_file(
+			pdf_buffer,
+			mimetype='application/pdf',
+			as_attachment=True,
+			download_name=f"{hero_name.replace(' ', '_')}_Adventure.pdf"
+		)
+	
+	except Exception as e:
+		print(f"[ERROR] PDF generation failed: {e}")
+		return jsonify({'error': f"PDF generation failed: {str(e)}"}), 500
 
 
 if __name__ == '__main__':

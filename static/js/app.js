@@ -119,12 +119,31 @@ document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('final-section').style.display = 'block';
       document.getElementById('story-text').textContent = 'Crafting your story...';
       
+      // Show progress checklist
+      const checklist = document.getElementById('progress-checklist');
+      checklist.style.display = 'block';
+      const checklistItems = document.getElementById('checklist-items');
+      checklistItems.innerHTML = '';
+      
       const resp = await fetch('/generate_story',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({character:characterText, world:worldText})});
       const j = await resp.json();
       
       if (j.error){ 
         document.getElementById('story-text').textContent = 'Error: '+JSON.stringify(j); 
         return;
+      }
+      
+      // Render progress checklist from steps
+      if (j.steps) {
+        checklistItems.innerHTML = j.steps.map(step => {
+          const icon = step.status === 'complete' ? '✓' : (step.status === 'skipped' ? '⊘' : '◐');
+          const color = step.status === 'complete' ? '#10b981' : (step.status === 'skipped' ? '#9ca3af' : '#f59e0b');
+          return `<div style="margin: 8px 0; display: flex; align-items: center; gap: 10px;">
+            <span style="color: ${color}; font-weight: bold; font-size: 18px;">${icon}</span>
+            <span style="color: #333;">${step.name}</span>
+            <span style="color: #999; font-size: 12px;">${step.status}</span>
+          </div>`;
+        }).join('');
       }
       
       // Display story (always present)
@@ -158,7 +177,56 @@ document.addEventListener('DOMContentLoaded', () => {
       } else {
         audioSection.style.display = 'none';
       }
+      
+      // Show PDF download button
+      const pdfBtn = document.getElementById('download-pdf-btn');
+      pdfBtn.style.display = 'inline-block';
+      pdfBtn.addEventListener('click', () => generateAndDownloadPDF(j));
     });
+  }
+  
+  // PDF Generation and Download
+  async function generateAndDownloadPDF(storyData) {
+    const btn = document.getElementById('download-pdf-btn');
+    const originalText = btn.textContent;
+    btn.textContent = '⏳ Generating PDF...';
+    btn.disabled = true;
+    
+    try {
+      const response = await fetch('/generate_pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          story: storyData.story,
+          character: storyData.character,
+          world: storyData.world,
+          hero_name: storyData.hero_name,
+          analogy: storyData.analogy,
+          images: storyData.images,
+          bg_image: storyData.images && storyData.images.length > 0 ? storyData.images[0] : null
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error('PDF generation failed');
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${storyData.hero_name.replace(/\s+/g, '_')}_Adventure.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err) {
+      console.error('Error generating PDF:', err);
+      alert('Failed to generate PDF. Please try again.');
+    } finally {
+      btn.textContent = originalText;
+      btn.disabled = false;
+    }
   }
 
 });

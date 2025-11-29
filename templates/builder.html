@@ -38,10 +38,24 @@
 
     <div id="final-section" style="margin-top:30px; display:none">
       <h2 class="gradient-title">Your Story</h2>
+      
+      <!-- Progress Checklist -->
+      <div id="progress-checklist" style="margin-bottom: 30px; padding: 15px; background: #f8f8f8; border-radius: 8px; display: none;">
+        <h4 style="margin-top: 0; color: #333;">Creating Your Story...</h4>
+        <div id="checklist-items"></div>
+      </div>
+      
       <article id="story-text" class="story"></article>
       <div id="images" class="images"></div>
       <h3 class="gradient-title">Real-life Inspiration</h3>
       <div id="analogy" class="output"></div>
+      
+      <!-- Download PDF Button -->
+      <div style="margin-top: 30px; text-align: center;">
+        <button id="download-pdf-btn" style="padding: 12px 24px; font-size: 16px; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white; border: none; border-radius: 6px; cursor: pointer; display: none;">
+          📥 Download Story as PDF
+        </button>
+      </div>
     </div>
 
     <div id="audio-section" style="margin-top:30px; display:none">
