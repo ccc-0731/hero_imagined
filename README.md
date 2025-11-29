@@ -2,169 +2,64 @@
 
 *A multimodal, agentic workflow for crafting your childhood dream superhero — then telling, illustrating, and sharing their story.*
 
-A full agent-powered creative pipeline that guides you from a spark of imagination → to a fully illustrated cinematic story → to an immersive audio experience → to real-life inspiration.
+Hero Imagined guides you from a spark of imagination to a fully illustrated, downloadable storybook with an optional short soundtrack and practical, real-world inspiration.
 
-Built with **Flask**, **Python**, **Google Gemini** (text & image), and **ElevenLabs** (audio), this project combines text, image, and audio generation into one cohesive interactive experience.
-
----
-
-## ✨ Overview
-
-Hero Imagined is a web-based system where a user can:
-
-1. **Describe** the kind of hero they want to become (Agent 1)
-2. **Design** the character in depth (Agent 2a)
-3. **Build** the world they inhabit (Agent 2b)
-4. **Get** a ~1000-word illustrated story (Agent 3)
-5. **Experience** studio Ghibli–styled cinematic illustrations (Agent 4a)
-6. **Listen** to a 30-second BGM with custom lyrics about their adventure (Agent 4b)
-7. **Reflect** on how to embark on real-world adventures (Agent 4c)
-
-All powered through a clean, agentic workflow with real-time progress updates.
+Built with Flask and a set of small, cooperative agents that coordinate Google Gemini (text + image) and ElevenLabs (audio), the project combines narrative, cinematic illustrations, and audio into a single interactive experience.
 
 ---
 
-## 🚀 Architecture
 
-Hero Imagined consists of **six main agents**, each running sequentially with intermediate UIs and animated progress bars.
+## 🔁 Agentic Workflow (high level)
 
-### **Agent 1 — Story Detector**
+1. Agent 1 — Story Detector
+    - Model: Google Gemini (`google.genai`) — detects the user's intent and extracts a concise setting/genre from a single prompt describing the kind of hero they want to become.
 
-**Model:** Google Gemini API
-**Purpose:** Interprets the user's initial dream-hero prompt.
-**Input:** Single text field asking:
+2. Agents 2 — Interactive Questioning
+    - Two parallel agents (displayed side-by-side): Character Designer and World Builder.
+    - Character Designer collects attributes (age, appearance, superpower, quirks, backstory, etc.) and produces a character blueprint.
+    - World Builder asks long-form questions about the setting (creatures/tech, history/myth, notable figures, mechanics of magic/technology) and produces a world description.
 
-> *"What kind of hero do you want to become?"*
-> (with examples: *woodland elf in a fantasy realm*, *secret agent on a sci-fi mission*, etc.)
+3. Agent 3 — Story Crafter
+    - Takes the finalized character blueprint and world description and composes a cinematic ~1000-word story using Google Gemini.
 
-**Output:**
-
-* The story's **genre** (fantasy, sci-fi, etc.)
-* A **concise setting summary** extracted from user input
-
----
-
-### **Agents 2 — Question Askers (Character Designer & World Builder)**
-
-Two parallel agents displayed in **left/right columns** on the same page, sharing a unified **"Done" button**.
-
-#### **Agent 2a — Character Designer**
-
-**Model:** Google Gemini
-**Input:** User fills 8–10 fields:
-
-* Age
-* World Setting
-* Hair & Skin
-* Superpower
-* Weapon
-* Personality
-* Worst Fear
-* Quirk
-* Backstory
-
-**Output:** A finalized *character blueprint* (text summary).
-
-#### **Agent 2b — World Builder**
-
-**Model:** Google Gemini
-**Input:** 4 long-form questions:
-
-* Describe key mythical plants/creatures (fantasy) or tech (sci-fi)
-* History & mythology
-* Legendary figures or heroes
-* Technology/magic details
-
-**Output:** A finalized *world description*.
-
-**UI Feature:** Both forms share a single **"Done"** button at the bottom, which triggers story generation once both character and world are finalized.
+4. Agent 4 — Storyteller Suite (post-story)
+    - 4a — Background Illustrator
+       - Generates a landscape/mood background image (no character). Output is `images[0]`.
+    - 4a — Hero Scene Illustrator
+       - Generates a cinematic hero action scene (the hero in-frame). Output is `images[1]`.
+    - 4b — Audio BGM Generator (optional)
+       - Gemini writes short lyrics; ElevenLabs (sound-generation) produces a ~30s BGM. Downloadable MP3 is provided.
+    - 4c — Real-Life Reflection
+       - Gemini analyzes the story and suggests real-world steps and inspiration; shown in a separate "In Real Life" panel.
 
 ---
 
-### **Agent 3 — Story Crafter**
+## 🧭 User Flow / UI
 
-**Model:** Google Gemini
-**Input:**
-
-* Finalized *character description* (from Agent 2a)
-* Finalized *world description* (from Agent 2b)
-
-**Process:**
-Composes a ~1000-word cinematic story prompt and calls Gemini.
-
-**Output:**
-A **1000-word story**, formatted like real narrative prose.
-Displayed at the top of the final page.
+- Index page: user types a short hero idea (Agent 1 runs).
+- Builder page: two columns with the Character and World forms. A shared "Done" button submits both, triggering Agent 3 (story) and the Storyteller Suite (images + audio).
+- Final page: shows story text, two generated images (background shown as UI background; hero scene shown in content), an audio player (if generated), and a separate "In Real Life" panel.
+- Download: the user can download a multi-page PDF of the story. The PDF uses the world background as the translucent page background (15% opacity) and includes the hero scene illustration inline.
 
 ---
 
-### **Agent 4 — Storyteller Suite**
+## 🧩 Tech Stack & Dependencies
 
-Three agents that activate after Agent 3 completes, appearing on the same final page.
+- Python 3.10+
+- Flask
+- `google.genai` (Google Gemini for text + image)
+- `requests`
+- `reportlab` (PDF generation)
+- `Pillow` (PIL) for image processing and opacity handling
+- ElevenLabs SDK / HTTP API (optional audio generation)
 
-#### **Agent 4a.1 — Background Illustrator**
-
-**Model:** Google Gemini (image generation)
-**Process:**
-1. Helper agent generates a Studio-Ghibli-style visual prompt for the *world background* (landscape, atmosphere, no character)
-2. Gemini image model generates the background image
-
-**Output:** A cinematic background image (~1024×768)
-
-#### **Agent 4a.2 — Hero Scene Illustrator**
-
-**Model:** Google Gemini (image generation)
-**Process:**
-1. Helper agent generates a visual prompt for a *dramatic scene with the hero in action* (with copyright guardrails)
-2. Gemini image model generates the scene illustration
-
-**Output:** A cinematic hero illustration (~1024×768)
-
-#### **Agent 4b — Audio BGM Generator**
-
-**Model:** ElevenLabs (sound generation API) + Gemini (lyrics)
-**Process:**
-1. Helper agent (Gemini) generates short, poetic lyrics (~50–80 words) about the hero's adventure
-2. ElevenLabs `sound-generation` endpoint creates a **30-second BGM** with the lyrics, styled to match the world's vibe
-
-**Output:** A downloadable **MP3 file** (~30 seconds of epic, whimsical music with lyrics)
-
-#### **Agent 4c — Real-Life Reflection**
-
-**Model:** Google Gemini
-**Process:**
-Reads the full story and infers the user's personality, suggesting how they can find their own "adventures" in real life.
-
-**Output:** A personalized, inspiring message connecting the fantasy narrative to real-world growth and mindset.
+Ensure `reportlab` and `Pillow` are listed in `requirements.txt`.
 
 ---
 
-## 🧠 Tech Stack
+## 🔐 Environment variables
 
-### Backend
-
-* **Python 3.10+**
-* **Flask** web framework
-* **google-generativeai** library (Gemini text & image)
-* **requests** (for ElevenLabs HTTP calls)
-
-### LLM APIs
-
-* **Google Gemini 2.0 Flash** (text generation & image generation)
-* **ElevenLabs Sound Generation API** (music generation)
-
-### Frontend
-
-* HTML / CSS / JavaScript
-* Fetch API for AJAX calls
-* Animated progress bars during agent transitions
-* Gradient text styling for polished UI
-
----
-
-## 🔐 Environment Variables
-
-Create a `.env` file in the project root:
+Create a `.env` file at project root and add your keys:
 
 ```bash
 GEMINI_API_KEY=your_google_api_key_here
@@ -173,170 +68,53 @@ GEMINI_IMAGE_MODEL=gemini-2.0-flash
 ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
 ```
 
-See `.env.example` for a template.
-
 ---
 
-## 📁 Project Structure
+## 📁 Project structure (overview)
 
 ```
 hero_imagined/
-├── app.py                          # Flask server & all routes
-├── requirements.txt                 # Python dependencies
-├── .env                            # ← Add your API keys here
-├── .env.example                    # Template for .env
-│
-├── templates/
-│   ├── base.html                   # Base template (layout, CSS/JS includes)
-│   ├── index.html                  # Agent 1: story detector
-│   └── builder.html                # Agents 2a/2b + 3 + 4: character, world, story, images, audio
-│
-├── static/
-│   ├── js/
-│   │   └── app.js                  # Client-side logic: fetch calls, progress bars, UI updates
-│   │
-│   ├── css/
-│   │   └── style.css               # Gradient text, columns, progress bar, button styling
-│   │
-│   ├── images/
-│   │   └── builder-bg.png          # ← Place your background image here for builder page
-│   │
-│   └── output/                     # Generated images, audio files (auto-created)
-│
-└── README.md
+├── app.py                # Flask server + routes implementing agents and PDF export
+├── requirements.txt      # Python dependencies
+├── .env                  # API keys (local)
+├── templates/            # Jinja2 templates (index, builder, final)
+└── static/
+      ├── js/
+      ├── css/
+      └── output/          # Generated images & audio files
 ```
 
 ---
 
-## 🚀 Installation & Setup
+## 📌 PDF Generation Notes (Still in progress)
 
-### 1. Clone or navigate to the project
+- The server expects generated images in the form `images = [background_url, hero_scene_url]`.
+- The PDF generator:
+   - Uses the second image (`images[1]`) as the page background and applies a 15% alpha so story text remains readable on top of the art. (Currently not really working)
+   - Embeds the hero scene (`images[0]`) inside the PDF as an inline image with its own caption.
+   - Falls back gracefully if images are missing (skips background or hero image if not available).
+
+---
+
+## 🚀 Run locally
 
 ```bash
-cd ~/Desktop/GitHub/hero_imagined
-```
-
-### 2. Create and activate a virtual environment
-
-```bash
-python3 -m venv .venv
+python -m venv .venv
 source .venv/bin/activate
-```
-
-### 3. Install dependencies
-
-```bash
 pip install -r requirements.txt
-```
-
-### 4. Set up environment variables
-
-Copy `.env.example` to `.env` and fill in your API keys:
-
-```bash
-cp .env.example .env
-# Edit .env with your keys:
-# GEMINI_API_KEY=...
-# ELEVENLABS_API_KEY=...
-```
-
-### 5. (Optional) Add a background image
-
-Place your background image at `static/images/builder-bg.png` (or any image path). The CSS will use it as the builder section background.
-
-### 6. Run the Flask server
-
-```bash
+cp .env.example .env   # then fill in your keys
 python app.py
 ```
 
-The server will start on `http://localhost:5000`.
+Open `http://localhost:8000` (or the port printed in the logs) and try the flow.
 
 ---
 
-## 🎯 User Flow
+## ✨ Next steps / ideas
 
-1. **Index Page (Agent 1):** User enters their hero idea (e.g., "woodland elf warrior")
-2. **Builder Page (Agents 2a + 2b):** Side-by-side forms for character & world. Progress bar shows generation.
-3. **Shared "Done" Button:** Submits both forms and triggers Agent 3
-4. **Final Page (Agents 3 + 4):** Displays:
-   - Generated story (Agent 3)
-   - Background + hero scene illustrations (Agent 4a)
-   - Audio player with 30-sec BGM (Agent 4b)
-   - Real-world inspiration message (Agent 4c)
-
----
-
-## 🎨 UI Features
-
-* **Gradient Text:** Titles and subtitles use a polished gradient (`#f6a819` → `#f06d6d` → `#8b5cf6`)
-* **Animated Progress Bars:** Smooth transitions as agents run
-* **Column Layout:** Character and World builders side-by-side with shared submit button
-* **Responsive Design:** Works on desktop browsers
-* **Background Image Support:** Builder section can display a custom fantasy background
-
----
-
-## ⚙️ Configuration
-
-### Model Selection
-
-You can override the default Gemini model by setting environment variables:
-
-```bash
-export GEMINI_TEXT_MODEL=gemini-2.0-flash-exp
-export GEMINI_IMAGE_MODEL=gemini-2.0-flash-exp
-```
-
-### ElevenLabs Audio
-
-The BGM generator uses ElevenLabs' `sound-generation` endpoint. Ensure your API key has access to this feature.
-
----
-
-## 🔧 Troubleshooting
-
-### "Google API key not found"
-
-Make sure you've set `GEMINI_API_KEY` in your `.env` file or exported it:
-
-```bash
-export GEMINI_API_KEY=your_key
-```
-
-### Images not generating
-
-Check:
-1. Your `GEMINI_API_KEY` is correct and has image generation enabled
-2. The `static/output/` directory exists and is writable
-3. Check terminal logs for detailed error messages
-
-### Audio file is silent
-
-If ElevenLabs doesn't return audio, check:
-1. `ELEVENLABS_API_KEY` is correct
-2. Your account has access to sound-generation API
-3. Check terminal logs for API error responses
-
----
-
-## 📚 Resources
-
-* [Google Gemini API Docs](https://ai.google.dev/docs)
-* [ElevenLabs API Reference](https://elevenlabs.io/docs/api-reference)
-* [Anthropic Claude Docs](https://docs.anthropic.com/)
-* [Flask Documentation](https://flask.palletsprojects.com/)
-
----
-
-## 🌈 Future Enhancements
-
-* **Session persistence:** Save user stories for later revisiting
-* **Regeneration:** Re-run individual agents with different parameters
-* **Extended mode:** Generate 3000+ word epic stories
-* **PDF export:** Polished downloadable story booklets
-* **Social sharing:** Share stories with custom URLs
-* **Voice selection:** Choose narrator voices for audio
+- Add login sessions and store data so users can revisit the story page.
+- Refine the PDF generation for better readability
+- Add a narrator to read the entire story
 
 ---
 
@@ -344,8 +122,8 @@ If ElevenLabs doesn't return audio, check:
 
 This project celebrates childhood imagination and the timeless appeal of storytelling. It was inspired by:
 
-1. **Personal Milestone:** Achieving a lifelong dream (lightsaber collection since age 9)
-2. **Modern Creativity:** The emergence of accessible AI creative tools
+1. **Personal Milestone:** Achieving the dream of owning a lightsaber since age 9
+2. **Modern Creativity:** The emergence of accessible AI creative tools (and CS 1100 homework requirements)
 3. **Shared Experience:** Everyone has a hero inside them waiting to be told
 
 *Built with love for dreamers, creators, and adventurers of all ages.*
