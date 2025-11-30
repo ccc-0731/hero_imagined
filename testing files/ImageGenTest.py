@@ -21,7 +21,7 @@ GEMINI_IMAGE_MODEL = os.getenv('GEMINI_IMAGE_MODEL', "gemini-2.5-flash-image")
 ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY')
 
 '''
-client = genai.Client(api_key="AIzaSyDqdw7J7vHLlU0Nb_tvAmJ9955N9Y3WfTA")
+client = genai.Client(api_key=GOOGLE_API_KEY)
 
 prompt = (
     "Create a picture of a ghibli-style profile photo for my DnD character, who is 9yr old very happy and very intelligent gender neutral elf paladin who looks asian and is around 130cm tall. I will do the oath of the ancients so put me in a nature background. I'm holding a short sword, have a short bow slung on back and carry cartographer tools in the backpack. Wearing simple elven clothing, a poor background. Hair is a bit messy but looks cool and cute, with a small strand of orange-yellow near the front. The sword is strapped to the waist and sheathed. Kind and joyful round open eyes."
