@@ -115,6 +115,7 @@ Open `http://localhost:8000` (or the port printed in the logs) and try the flow.
 - Add login sessions and store data so users can revisit the story page.
 - Refine the PDF generation for better readability
 - Add a narrator to read the entire story
+- Add user end logic to modify prompt for story style alignment
 
 ---
 
@@ -127,3 +128,4 @@ This project celebrates childhood imagination and the timeless appeal of storyte
 3. **Shared Experience:** Everyone has a hero inside them waiting to be told
 
 *Built with love for dreamers, creators, and adventurers of all ages.*
+-- Panda Chu & GitHub Copilot :)
