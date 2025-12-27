@@ -150,7 +150,7 @@ def api_generate_questions():
 	
 	# Generate character questions
 	char_q_prompt = f"""Based on the user wanting to create a hero described as: "{user_prompt}"
-In a {detected_topic} setting, generate 8-10 basic and generic questions to help design a character. The questions should be no longer than a sentence, and the answer is expected to be very brief.
+In a {detected_topic} setting, generate 4-5 basic and generic questions to help design a character. The questions should be no longer than a sentence, and the answer is expected to be very brief.
 For each question, provide:
 1. The question (numbered)
 2. An inspirational example answer in parenthesis, (e.g. like this, including the).
@@ -181,7 +181,7 @@ IMPORTANT: Return ONLY valid JSON, no additional text before or after."""
 	
 	# Generate world building questions
 	world_q_prompt = f"""Based on a {detected_topic} world for the hero: "{user_prompt}"
-Generate exactly 4-5 simple and generic world-building questions. The questions and expected answers should be no longer than a sentence.
+Generate exactly 2-3 simple and generic world-building questions. The questions and expected answers should be no longer than a sentence.
 For each question, provide:
 1. The question (numbered)
 2. An inspirational example answer in parenthesis, (e.g. like this, including the e.g.). 
