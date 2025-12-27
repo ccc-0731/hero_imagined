@@ -6,3 +6,4 @@ google-genai
 elevenlabs
 reportlab
 Pillow
+gunicorn
