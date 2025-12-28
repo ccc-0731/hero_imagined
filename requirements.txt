@@ -7,3 +7,4 @@ elevenlabs
 reportlab
 Pillow
 gunicorn
+Markdown

@@ -146,8 +146,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }).join('');
       }
       
-      // Display story (always present)
-      document.getElementById('story-text').textContent = j.story || 'Story generation failed.';
+      // Display story (always present) — server returns sanitized HTML from Markdown
+      document.getElementById('story-text').innerHTML = j.story_html || '<p>Story generation failed.</p>';
       
       // Display images if available
       const imagesDiv = document.getElementById('images'); 
@@ -161,8 +161,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       }
       
-      // Display analogy (real-life inspiration)
-      document.getElementById('analogy').textContent = j.analogy || 'Analogy generation skipped.';
+      // Display analogy (real-life inspiration) — server returns sanitized HTML from Markdown
+      document.getElementById('analogy').innerHTML = j.analogy_html || '<p>Analogy generation skipped.</p>';
       
       // Display audio in separate section if available
       const audioSection = document.getElementById('audio-section');

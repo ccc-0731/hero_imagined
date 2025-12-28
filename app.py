@@ -2,6 +2,8 @@ import os
 import uuid
 import base64
 import json
+import concurrent.futures
+import markdown as md
 from flask import Flask, render_template, request, jsonify, send_from_directory, url_for
 import requests
 from dotenv import load_dotenv
@@ -121,6 +123,119 @@ def generate_bgm_instrumental(world_description, character_description, hero_nam
     except Exception as e:
         print(f"BGM generation error: {e}")
         raise
+
+
+# ----------------------
+# Helpers for agent workflow
+# ----------------------
+def run_with_timeout(fn, *args, timeout=60, **kwargs):
+	"""Run function in a separate thread and raise TimeoutError if it exceeds timeout seconds."""
+	with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+		future = ex.submit(fn, *args, **kwargs)
+		try:
+			return future.result(timeout=timeout)
+		except concurrent.futures.TimeoutError:
+			raise TimeoutError(f"{fn.__name__} timed out after {timeout} seconds")
+		except Exception:
+			# Re-raise underlying exception for caller to handle
+			raise
+
+
+def generate_story_text(character, world, timeout=60):
+	prompt = (
+		"Write an engaging ~600-word short story about an adventure of this hero in the world."
+		" Use cinematic, slightly whimsical style. Focus on deep philosophical ideas tied to the human condition."
+		" Respond in Markdown. Use bold and italics if necessary, but don't overuse subheadings (the story shouldn't have them)."
+		f"\n\nCharacter:\n{character}\n\nWorld:\n{world}\n"
+	)
+	def _call():
+		resp = call_gemini_text(prompt)
+		return resp.get('raw', '')
+	return run_with_timeout(_call, timeout=timeout)
+
+
+def extract_hero_name(character, timeout=30):
+	def _call():
+		resp = call_gemini_text(f"Extract just the character's name from this description: {character}. Output only the name, nothing else.")
+		return resp.get('raw', '').strip()
+	try:
+		return run_with_timeout(_call, timeout=timeout)
+	except Exception:
+		return ''
+
+
+def generate_visual_prompt_and_image(world_text, prefix, timeout=40):
+	"""Return (prompt_text, image_url_or_None)."""
+	try:
+		prompt_req = (
+			f"Generate a detailed visual description prompt for a Studio Ghibli-style fantasy background."
+			f" Describe landscape, atmosphere, colors, mood and cinematic quality based on: {world_text}."
+			" Output only the visual prompt in one paragraph."
+		)
+		def _gen_prompt():
+			resp = call_gemini_text(prompt_req)
+			return resp.get('raw', '').strip()
+
+		visual_prompt = run_with_timeout(_gen_prompt, timeout=timeout)
+		if not visual_prompt:
+			return None, None
+
+		fname = f"{prefix}_{uuid.uuid4().hex[:8]}.png"
+		# generate image (may raise)
+		img_path = run_with_timeout(lambda: call_gemini_image(visual_prompt, fname), timeout=60)
+		img_url = url_for('static', filename=f'output/{os.path.basename(img_path)}')
+		return visual_prompt, img_url
+	except Exception as e:
+		print(f"[WARNING] Visual generation failed: {e}")
+		return None, None
+
+
+def generate_hero_scene_and_image(character, story_excerpt, timeout=60):
+	try:
+		prompt_req = (
+			f"Generate a detailed visual description prompt for a Studio Ghibli-style cinematic scene illustration."
+			f" Depict a dramatic moment of the hero in action, showing unique features and abilities."
+			f" Character: {character}. Story excerpt: {story_excerpt}. Output only the visual prompt."
+		)
+		def _gen():
+			resp = call_gemini_text(prompt_req)
+			return resp.get('raw', '').strip()
+
+		hero_prompt = run_with_timeout(_gen, timeout=timeout)
+		if not hero_prompt:
+			return None, None
+		fname = f"hero_scene_{uuid.uuid4().hex[:8]}.png"
+		img_path = run_with_timeout(lambda: call_gemini_image(hero_prompt, fname), timeout=60)
+		img_url = url_for('static', filename=f'output/{os.path.basename(img_path)}')
+		return hero_prompt, img_url
+	except Exception as e:
+		print(f"[WARNING] Hero scene generation failed: {e}")
+		return None, None
+
+
+def generate_bgm_wrapper(world_description, character_description, hero_name, filename, timeout=60):
+	try:
+		return run_with_timeout(lambda: generate_bgm_instrumental(world_description, character_description, hero_name, filename), timeout=timeout)
+	except Exception as e:
+		raise
+
+
+def generate_analogy_text(hero_name, story, timeout=60):
+	prompt = (
+		"Extract the central theme of this hero story. Then speak directly to the person who imagined this hero (the creator)."
+		" Suggest how this story's theme and the hero's journey can inspire them to embark on meaningful 'adventures' in real life."
+		" Be specific about life lessons and practical ways to embody the hero's spirit."
+		" Respond in Markdown. Use headings and bullet points where helpful."
+		f"\n\nHero name: {hero_name}\nStory:\n{story}"
+	)
+	def _call():
+		resp = call_gemini_text(prompt)
+		return resp.get('raw', '')
+	try:
+		return run_with_timeout(_call, timeout=timeout)
+	except Exception as e:
+		print(f"[WARNING] Analogy generation error: {e}")
+		return ''
 
 
 
@@ -247,9 +362,9 @@ def api_world():
 @app.route('/generate_story', methods=['POST'])
 def generate_story():
 	data = request.json or {}
-	character = data.get('character','')
-	world = data.get('world','')
-	
+	character = data.get('character', '')
+	world = data.get('world', '')
+
 	result = {
 		'story': None,
 		'images': [],
@@ -257,114 +372,115 @@ def generate_story():
 		'analogy': None,
 		'error': None
 	}
-	
-	# ============================================
-	# Step 1: Generate Story (CRITICAL - must succeed)
-	# ============================================
+
+	# Step 1: Generate Story (must succeed)
 	try:
-		prompt = f"Write an engaging ~1000-word short story about an adventure of this hero in the world. The story should be thought-provoking and demonstrate deep philosophical ideas tied to the human condition. Character:\n{character}\nWorld:\n{world}\nStyle: cinematic, slightly whimsical."
-		resp = call_gemini_text(prompt)
-		story = resp.get('raw') or json.dumps(resp)
-		result['story'] = story
-		print("[SUCCESS] Story generated")
+		story_md = generate_story_text(character, world, timeout=60)
+		if not story_md:
+			raise RuntimeError('Empty story from model')
+		result['story'] = story_md
+		print("[SUCCESS] Story generated (markdown)")
 	except Exception as e:
 		print(f"[CRITICAL ERROR] Story generation failed: {e}")
 		result['error'] = f"Story generation failed: {str(e)}"
 		return jsonify(result), 500
-	
-	# ============================================
-	# Step 2: Extract Hero Name (Optional)
-	# ============================================
-	hero_name = 'the hero'
+
+	# Step 2: Extract Hero Name
+	hero_name = extract_hero_name(character) or 'the hero'
+	if hero_name:
+		print(f"[INFO] Hero name extracted: {hero_name}")
+	else:
+		print("[INFO] Using default hero name")
+
+	# Note: Image and BGM generation moved to dedicated endpoints to reduce memory
+	# and allow the frontend to request them separately. They will be performed
+	# after returning the core story payload.
+
+	# Step 6: Real-life analogy (optional, produce Markdown)
 	try:
-		name_resp = call_gemini_text(f"Extract just the character's name from this description: {character}. Output only the name, nothing else.")
-		hero_name = name_resp.get('raw', '').strip() or 'the hero'
-		print(f"[SUCCESS] Hero name extracted: {hero_name}")
-	except Exception as e:
-		print(f"[WARNING] Hero name extraction failed: {e}, using default")
-		hero_name = 'the hero'
-	
-	# ============================================
-	# Step 3: Generate Background Image Prompt (Optional)
-	# ============================================
-	bg_img_url = None
-	try:
-		bg_prompt_req = f"Generate a detailed visual description prompt for a Studio Ghibli-style fantasy world background. The prompt should describe the landscape, atmosphere, and environment based on this world description: {world}. Include details about colors, mood, and cinematic quality. Must say explicitly Studio Ghibli Style. Do not mention the character. Output only the visual prompt, no other text."
-		bg_prompt_resp = call_gemini_text(bg_prompt_req)
-		bg_prompt = bg_prompt_resp.get('raw', '').strip()
-		
-		# Step 3b: Generate background illustration (only if prompt was generated)
-		if bg_prompt:
-			bg_fname = f"background_{uuid.uuid4().hex[:8]}.png"
-			bg_img_path = call_gemini_image(bg_prompt, bg_fname)
-			bg_img_url = url_for('static', filename=f'output/{os.path.basename(bg_img_path)}')
-			result['images'].append(bg_img_url)
-			print("[SUCCESS] Background image generated")
+		analogy_md = generate_analogy_text(hero_name, result['story'], timeout=30)
+		result['analogy'] = analogy_md
+		if analogy_md:
+			print("[SUCCESS] Analogy generated (markdown)")
 		else:
-			print("[WARNING] Background image prompt generation returned empty")
+			print("[INFO] Analogy generation returned empty")
 	except Exception as e:
-		print(f"[WARNING] Background image generation failed: {e}, continuing without it")
-	
-	# ============================================
-	# Step 4: Generate Hero Scene Image Prompt (Optional)
-	# ============================================
-	try:
-		hero_prompt_req = f"Generate a detailed visual description prompt for a Studio Ghibli-style cinematic scene illustration. The prompt should depict a dramatic moment of the hero in action, showing their unique features and abilities in the fantasy world. Include copyright-safe descriptions and emphasize artistic style over specific references. Character: {character}. Story excerpt: {story[:300]}. Must say explicitly Studio Ghibli style. Output only the visual prompt, no other text."
-		hero_prompt_resp = call_gemini_text(hero_prompt_req)
-		hero_prompt = hero_prompt_resp.get('raw', '').strip()
-		
-		# Step 4b: Generate hero scene illustration (only if prompt was generated)
-		if hero_prompt:
-			hero_fname = f"hero_scene_{uuid.uuid4().hex[:8]}.png"
-			hero_img_path = call_gemini_image(hero_prompt, hero_fname)
-			hero_img_url = url_for('static', filename=f'output/{os.path.basename(hero_img_path)}')
-			result['images'].insert(0, hero_img_url)
-			print("[SUCCESS] Hero scene image generated")
-		else:
-			print("[WARNING] Hero scene image prompt generation returned empty")
-	except Exception as e:
-		print(f"[WARNING] Hero scene image generation failed: {e}, continuing without it")
-	
-	# ============================================
-	# Step 5: Generate BGM (Optional)
-	# ============================================
-	try:
-		audio_file = f"bgm_{uuid.uuid4().hex[:8]}.mp3"
-		audio_path, lyrics = generate_bgm_instrumental(world[:100], character[:100], hero_name, audio_file)
-		audio_url = url_for('static', filename=f'output/{os.path.basename(audio_path)}')
-		result['audio'] = audio_url
-		print("[SUCCESS] BGM generated")
-	except Exception as e:
-		print(f"[WARNING] BGM generation failed: {e}, continuing without it")
-		result['audio'] = None
-	
-	# ============================================
-	# Step 6: Generate Real-life Analogy (Optional)
-	# ============================================
-	try:
-		analogy_prompt = f"Extract the central theme of this hero story. Then speak directly to the person who imagined this hero (not the character, but the creator/author). Suggest how this story's theme and the hero's journey can inspire them to embark on meaningful 'adventures' of their own in real life. Be specific about the life lessons and practical ways they can embody their hero's spirit. Hero name: {hero_name}. Story:\n{story}"
-		analogy_resp = call_gemini_text(analogy_prompt)
-		analogy = analogy_resp.get('raw') or json.dumps(analogy_resp)
-		result['analogy'] = analogy
-		print("[SUCCESS] Analogy generated")
-	except Exception as e:
-		print(f"[WARNING] Analogy generation failed: {e}, continuing without it")
+		print(f"[WARNING] Analogy generation failed: {e}")
 		result['analogy'] = None
-	
+
 	# Add progress tracking info
+	# Mark heavy tasks as pending so the frontend can request them individually
 	result['steps'] = [
 		{'name': 'Story Generation', 'status': 'complete'},
 		{'name': 'Hero Name Extraction', 'status': 'complete'},
-		{'name': 'Background Image', 'status': 'complete' if bg_img_url else 'skipped'},
-		{'name': 'Hero Scene Image', 'status': 'complete' if (len(result['images']) > 1 or (len(result['images']) == 1 and not bg_img_url)) else 'skipped'},
-		{'name': 'Background Music', 'status': 'complete' if result['audio'] else 'skipped'},
+		{'name': 'Background Image', 'status': 'pending'},
+		{'name': 'Hero Scene Image', 'status': 'pending'},
+		{'name': 'Background Music', 'status': 'pending'},
 		{'name': 'Real-life Inspiration', 'status': 'complete' if result['analogy'] else 'skipped'}
 	]
 	result['character'] = character
 	result['world'] = world
 	result['hero_name'] = hero_name
-	
+
+	# Convert Markdown to HTML for client rendering
+	try:
+		result['story_html'] = md.markdown(result['story'] or '', extensions=['fenced_code', 'tables', 'nl2br'])
+	except Exception:
+		result['story_html'] = '<pre>' + (result['story'] or '') + '</pre>'
+
+	try:
+		result['analogy_html'] = md.markdown(result['analogy'] or '', extensions=['fenced_code', 'tables', 'nl2br'])
+	except Exception:
+		result['analogy_html'] = '<pre>' + (result['analogy'] or '') + '</pre>'
+
 	return jsonify(result)
+
+
+
+@app.route('/generate_image', methods=['POST'])
+def generate_image():
+	"""Generate either a background or hero scene image.
+	Expects JSON: { type: 'background'|'hero', world, character, story_excerpt }
+	"""
+	data = request.json or {}
+	itype = data.get('type')
+	world = data.get('world', '')
+	character = data.get('character', '')
+	story_excerpt = data.get('story_excerpt', '')
+
+	try:
+		if itype == 'background':
+			prompt, img_url = generate_visual_prompt_and_image(world, 'background')
+		elif itype == 'hero':
+			prompt, img_url = generate_hero_scene_and_image(character, story_excerpt)
+		else:
+			return jsonify({'error': 'unknown image type'}), 400
+
+		if img_url:
+			return jsonify({'image_url': img_url, 'prompt': prompt})
+		else:
+			return jsonify({'error': 'generation_failed'}), 500
+	except Exception as e:
+		return jsonify({'error': str(e)}), 500
+
+
+@app.route('/generate_bgm', methods=['POST'])
+def generate_bgm():
+	"""Generate background music independently.
+	Expects JSON: { world, character, hero_name }
+	"""
+	data = request.json or {}
+	world = data.get('world', '')
+	character = data.get('character', '')
+	hero_name = data.get('hero_name', 'the hero')
+
+	try:
+		audio_file = f"bgm_{uuid.uuid4().hex[:8]}.mp3"
+		audio_path, _ = generate_bgm_wrapper(world[:100], character[:100], hero_name, audio_file, timeout=60)
+		audio_url = url_for('static', filename=f'output/{os.path.basename(audio_path)}')
+		return jsonify({'audio_url': audio_url})
+	except Exception as e:
+		return jsonify({'error': str(e)}), 500
 
 
 @app.route('/generate_pdf', methods=['POST'])
@@ -477,7 +593,7 @@ def generate_pdf():
 			except Exception as e:
 				print(f"[WARNING] Could not prepare transparent background image: {e}")
 		
-		# Hero scene image (if available - use second image if it exists)
+		# Hero scene image (if available - use first image if it exists)
 		if images and len(images) > 0:
 			hero_img_url = images[0]
 			try:
