@@ -1,7 +1,8 @@
 {% extends 'base.html' %}
 {% block content %}
   <section>
-    <h2>Start: What kind of hero do you want to become?</h2>
+    <label>小提示：输入中文即可使用中文交流（但是界面还是英文的🤣）</label>
+    <h2>The basic idea: What kind of hero do you want to become?</h2>
     <form method="post" action="/builder" id="hero-form">
       <label for="hero_prompt">Describe your hero & setting (examples: "woodland elf in fantasy realm", "agent on a mission in a sci-fi universe")</label>
       <input type="text" id="hero_prompt" name="hero_prompt" placeholder="e.g. woodland elf in a fantasy realm" required>

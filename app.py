@@ -37,7 +37,7 @@ def call_gemini_text(prompt, system=None):
 		client = genai.Client(api_key=GOOGLE_API_KEY)
 		response = client.models.generate_content(
 			model=GEMINI_TEXT_MODEL,
-			contents=prompt
+			contents=prompt+'If there is Chinese, respond in Chinese (unless you are asked to prompt a music AI).'
 		)
 		text = response.text if response else ''
 		return {'raw': text}
@@ -75,54 +75,80 @@ def call_gemini_image(prompt, filename):
         print(f"Gemini image error: {e}")
         raise
 
-def generate_bgm_instrumental(world_description, character_description, hero_name, filename):
-    """
-    Generate ~30 seconds of instrumental background music using ElevenLabs.
-    Music is based on the worldbuilding and tone of the story.
-    """
-    out_path = os.path.join(app.config['STATIC_OUTPUT'], filename)
+def generate_bgm_instrumental(world_description, character_description, filename):
+	"""
+	Generate ~30 seconds of instrumental background music using ElevenLabs.
+	Music is based on the worldbuilding and tone of the story.
+	"""
+	out_path = os.path.join(app.config['STATIC_OUTPUT'], filename)
+	try:
+		# ---- Ask Gemini to craft a concise music-generation prompt -----
+		prompt_req = f'''You are a music-prompt writer for ElevenLabs Music generation. 
+			Given a fantasy/sci-fi world description and a character description, write ONE single music prompt string.
 
-    try:
-        # ---- Build a musical style prompt -------------------------------
-        # No lyrics! Instrument-only. Just an atmospheric vibe prompt.
-        music_prompt = (
-            f"Instrumental cinematic fantasy theme for a hero named {hero_name}. "
-            f"World: {world_description}. "
-			f"Character: {character_description}. "
-            f"Tone: emotional, adventurous, atmospheric, warm, slightly whimsical. "
-            f"Focus on orchestral textures, light percussion, gentle strings."
-        )
+			Requirements:
+			- Make it usable directly as a generation prompt (no analysis, no bullet points, no extra commentary).
+			- Include: genre/style + mood + instrumentation + production/texture adjectives.
+			- Suggest light structure in plain language (e.g., “slow build → heroic lift → calm resolve”), but keep it short.
+			- Optional: include tempo (BPM) and key only if you are confident; otherwise omit.
+			- Avoid copyrighted references or named existing songs.
+			- Keep it 1–3 sentences, dense but readable, with strong descriptive nouns/adjectives.
 
-        # ---- ElevenLabs compose endpoint --------------------------------
-        url = "https://api.elevenlabs.io/v1/music"
-        headers = {
-            "xi-api-key": ELEVENLABS_API_KEY,
-            "Content-Type": "application/json"
-        }
+			Inputs:
+			World: {world_description}
+			Character: {character_description}
 
-        body = {
-            # Use the correct field names from ElevenLabs docs
-            "prompt": music_prompt,          # You can’t use both "prompt" + "text"
-            "music_length_ms": 60000,        # 60 seconds in ms
-            "output_format": "mp3_44100_128",
-            "force_instrumental": True       # Ensures no vocals
-        }
+			Output:
+			Return only the final music prompt string.
+		'''.strip()
+		try:
+			gem = run_with_timeout(lambda: call_gemini_text(prompt_req), timeout=20)
+			music_prompt = (gem.get('raw') if isinstance(gem, dict) else str(gem)) or ''
+			music_prompt = music_prompt.strip()
+		except Exception as e:
+			print(f"[WARNING] Gemini music prompt generation failed: {e}")
+			music_prompt = ''
 
-        # ---- POST request (stream audio chunks) -------------------------
-        resp = requests.post(url, headers=headers, json=body, stream=True, timeout=90)
+		# Fallback prompt if Gemini didn't produce one
+		if not music_prompt:
+			music_prompt = (
+				f"Instrumental cinematic fantasy theme for a hero's adventure. "
+				f"World: {world_description}. "
+				f"Character: {character_description}. "
+				f"Tone: emotional, adventurous, atmospheric, warm, slightly whimsical. "
+				f"Focus on orchestral textures, light percussion, gentle strings."
+			)
 
-        if resp.status_code == 200:
-            with open(out_path, "wb") as f:
-                for chunk in resp.iter_content(chunk_size=8192):
-                    if chunk:
-                        f.write(chunk)
-            return out_path, ""
-        else:
-            raise RuntimeError(f"ElevenLabs error {resp.status_code}: {resp.text}")
+		# ---- ElevenLabs compose endpoint --------------------------------
+		url = "https://api.elevenlabs.io/v1/music"
+		headers = {
+			"xi-api-key": ELEVENLABS_API_KEY,
+			"Content-Type": "application/json"
+		}
 
-    except Exception as e:
-        print(f"BGM generation error: {e}")
-        raise
+		body = {
+			# Use the correct field names from ElevenLabs docs
+			"prompt": music_prompt,          # You can’t use both "prompt" + "text"
+			"music_length_ms": 60000,        # 60 seconds in ms
+			"output_format": "mp3_44100_128",
+			"force_instrumental": True       # Ensures no vocals
+		}
+
+		# ---- POST request (stream audio chunks) -------------------------
+		resp = requests.post(url, headers=headers, json=body, stream=True, timeout=90)
+
+		if resp.status_code == 200:
+			with open(out_path, "wb") as f:
+				for chunk in resp.iter_content(chunk_size=8192):
+					if chunk:
+						f.write(chunk)
+			return out_path, music_prompt
+		else:
+			raise RuntimeError(f"ElevenLabs error {resp.status_code}: {resp.text}")
+
+	except Exception as e:
+		print(f"BGM generation error: {e}")
+		raise
 
 
 # ----------------------
@@ -213,11 +239,7 @@ def generate_hero_scene_and_image(character, story_excerpt, timeout=60):
 		return None, None
 
 
-def generate_bgm_wrapper(world_description, character_description, hero_name, filename, timeout=60):
-	try:
-		return run_with_timeout(lambda: generate_bgm_instrumental(world_description, character_description, hero_name, filename), timeout=timeout)
-	except Exception as e:
-		raise
+# Removed generate_bgm_wrapper; BGM generation now uses generate_bgm_instrumental directly
 
 
 def generate_analogy_text(hero_name, story, timeout=60):
@@ -226,6 +248,7 @@ def generate_analogy_text(hero_name, story, timeout=60):
 		" Suggest how this story's theme and the hero's journey can inspire them to embark on meaningful 'adventures' in real life."
 		" Be specific about life lessons and practical ways to embody the hero's spirit."
 		" Respond in Markdown. Use headings and bullet points where helpful."
+		" Keep the formatting condensed, no excessive newlines."
 		f"\n\nHero name: {hero_name}\nStory:\n{story}"
 	)
 	def _call():
@@ -476,9 +499,9 @@ def generate_bgm():
 
 	try:
 		audio_file = f"bgm_{uuid.uuid4().hex[:8]}.mp3"
-		audio_path, _ = generate_bgm_wrapper(world[:100], character[:100], hero_name, audio_file, timeout=60)
+		audio_path, prompt_used = run_with_timeout(lambda: generate_bgm_instrumental(world, character, audio_file), timeout=60)
 		audio_url = url_for('static', filename=f'output/{os.path.basename(audio_path)}')
-		return jsonify({'audio_url': audio_url})
+		return jsonify({'audio_url': audio_url, 'prompt': prompt_used})
 	except Exception as e:
 		return jsonify({'error': str(e)}), 500
 
