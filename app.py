@@ -285,7 +285,22 @@ def generate_analogy_text(hero_name, story, timeout=60):
 
 @app.route('/')
 def index():
-	return render_template('index.html')
+	# Intro text rendered as Markdown on the landing page
+	intro_md = ''' *V1.1 Demo*
+		* Open for testing & feedback
+		* Come up with your weirdest idea and answer some creative questions to build your own hero adventure story along with illustrations and a soundtrack!
+		⚠️ Whatever you do, please do NOT refresh the page! All progress will be lost.
+		❗️ Finish all the questions on the character & world building page before proceeding. 
+		✅ The more specific the better (Story generation AI will NOT see the questions or suggestions.)
+		😵‍💫 Please be nice and don’t abuse it.
+		🤔 Currently mostly only compatible in English
+		❗️ If you don’t save the PDF (or use Ctrl/Cmd+P to save the entire page).
+		🎵 Unfortunately, the BGM generator ran out of credits...'''
+	try:
+		intro_html = md.markdown(intro_md, extensions=['fenced_code', 'tables', 'nl2br'])
+	except Exception:
+		intro_html = '<pre>' + intro_md + '</pre>'
+	return render_template('index.html', intro_html=intro_html)
 
 
 @app.route('/builder', methods=['POST'])
@@ -451,11 +466,12 @@ def generate_story():
 
 	# Add progress tracking info
 	# Mark heavy tasks as pending so the frontend can request them individually
+	# Order updated: Hero Scene Image now appears before Background Image
 	result['steps'] = [
 		{'name': 'Story Generation', 'status': 'complete'},
 		{'name': 'Hero Name Extraction', 'status': 'pending'},
-		{'name': 'Background Image', 'status': 'pending'},
 		{'name': 'Hero Scene Image', 'status': 'pending'},
+		{'name': 'Background Image', 'status': 'pending'},
 		{'name': 'Background Music', 'status': 'pending'},
 		{'name': 'Real-life Inspiration', 'status': 'pending'}
 	]
@@ -519,7 +535,8 @@ def generate_bgm():
 		audio_file = f"bgm_{uuid.uuid4().hex[:8]}.mp3"
 		audio_path, prompt_used = run_with_timeout(lambda: generate_bgm_instrumental(world, character, audio_file), timeout=60)
 		audio_url = url_for('static', filename=f'output/{os.path.basename(audio_path)}')
-		return jsonify({'audio_url': audio_url, 'prompt': prompt_used})
+		# Also return the audio filename so the client can request a server-side download
+		return jsonify({'audio_url': audio_url, 'prompt': prompt_used, 'audio_filename': os.path.basename(audio_path)})
 	except Exception as e:
 		return jsonify({'error': str(e)}), 500
 
@@ -536,6 +553,25 @@ def extract_hero_name_endpoint():
 		name = extract_hero_name(character)
 		name = name or 'the hero'
 		return jsonify({'hero_name': name})
+	except Exception as e:
+		return jsonify({'error': str(e)}), 500
+
+
+@app.route('/download_bgm', methods=['GET'])
+def download_bgm():
+	"""Serve a generated BGM file as an attachment to force download (same-origin).
+	Query param: file=<basename.mp3>
+	"""
+	fname = request.args.get('file', '')
+	if not fname:
+		return jsonify({'error': 'file parameter required'}), 400
+	# sanitize and ensure it's a basename
+	fname = os.path.basename(fname)
+	file_path = os.path.join(app.config['STATIC_OUTPUT'], fname)
+	if not os.path.exists(file_path):
+		return jsonify({'error': 'file not found'}), 404
+	try:
+		return send_from_directory(app.config['STATIC_OUTPUT'], fname, as_attachment=True, download_name=fname)
 	except Exception as e:
 		return jsonify({'error': str(e)}), 500
 
@@ -654,19 +690,19 @@ def generate_pdf():
 					else:
 						local_path = bg_image_path
 					img = PILImage.open(local_path)
-				
-				# Convert to RGBA and apply 15% opacity
+
+				# Ensure RGBA and blend onto white at low opacity (more reliable than relying on alpha channel in ReportLab)
 				if img.mode != 'RGBA':
 					img = img.convert('RGBA')
-				
-				r, g, b, a = img.split()
-				a = a.point(lambda p: int(p * 0.05))
-				img.putalpha(a)
-				
+				opacity = 0.25  # 25% visible
+				white_bg = PILImage.new('RGBA', img.size, (255, 255, 255, 255))
+				blended = PILImage.blend(white_bg, img, opacity)
+
 				img_buffer = BytesIO()
-				img.save(img_buffer, format='PNG')
+				blended.save(img_buffer, format='PNG')
 				img_buffer.seek(0)
 				bg_image_reader = ImageReader(img_buffer)
+				print(f"[DEBUG] Prepared background image (size={img.size}, mode={img.mode}, opacity={opacity})")
 			except Exception as e:
 				print(f"[WARNING] Could not prepare transparent background image: {e}")
 		

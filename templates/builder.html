@@ -56,7 +56,7 @@
       
       <!-- Download PDF Button -->
       <div style="margin-top: 30px; text-align: center;">
-        <button id="download-pdf-btn" style="padding: 12px 24px; font-size: 16px; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white; border: none; border-radius: 6px; cursor: pointer; display: none;">
+        <button id="download-pdf-btn" class="primary-btn" style="font-size:16px; display:none">
           📥 Download Story as PDF
         </button>
       </div>
@@ -65,6 +65,9 @@
     <div id="audio-section" style="margin-top:30px; display:none">
       <h2 class="gradient-title">Your Adventure Soundtrack</h2>
       <div id="audio-player"></div>
+        <div style="margin-top:12px; text-align:center;">
+          <a id="download-bgm-btn" class="primary-btn" href="#" download style="display:none">⬇️ Download Soundtrack</a>
+        </div>
     </div>
   </section>
 {% endblock %}

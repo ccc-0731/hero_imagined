@@ -128,7 +128,7 @@ textarea {
 .progress .bar {
   height: 100%;
   width: 0%;
-  background: linear-gradient(90deg, #f6a819, #f06d6d);
+  background: linear-gradient(90deg, #f6a819, #f6c35c);
   transition: width 0.2s;
 }
 
@@ -144,7 +144,7 @@ button {
   padding: 12px 24px;
   border: none;
   border-radius: 6px;
-  background: linear-gradient(135deg, #f6a819, #f06d6d);
+  background: linear-gradient(135deg, #f6a819, #f6c35c);
   color: white;
   cursor: pointer;
   font-weight: bold;
@@ -162,7 +162,18 @@ button:disabled {
 }
 
 .done-btn {
-  background: linear-gradient(135deg, #8b5cf6, #f06d6d);
+  background: linear-gradient(135deg, #f6a819, #f6c35c);
+}
+
+/* Anchor-styled primary buttons (for download links) */
+.primary-btn {
+  display: inline-block;
+  padding: 12px 24px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #f6a819, #f6c35c);
+  color: white;
+  text-decoration: none;
+  font-weight: bold;
 }
 
 #audio-player {

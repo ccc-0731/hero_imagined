@@ -259,6 +259,17 @@ document.addEventListener('DOMContentLoaded', () => {
             storyData.audio = mj.audio_url;
             audioSection.style.display = 'block';
             const a = document.createElement('audio'); a.controls=true; a.src=mj.audio_url; audioDiv.appendChild(a);
+            // Enable BGM download button (exists in template)
+            const dl = document.getElementById('download-bgm-btn');
+            if (dl) {
+              try{
+                // Prefer server-side download endpoint to force attachment (works on Render)
+                const audioFilename = mj.audio_filename || (mj.audio_url || '').split('/').pop() || ((storyData.hero_name || 'adventure').replace(/\s+/g, '_') + '_bgm.mp3');
+                dl.href = `/download_bgm?file=${encodeURIComponent(audioFilename)}`;
+                dl.download = audioFilename;
+                dl.style.display = 'inline-block';
+              }catch(e){ console.warn('Could not enable BGM download button', e); }
+            }
             updateStep('Background Music', 'complete');
           } else {
             updateStep('Background Music','skipped');
