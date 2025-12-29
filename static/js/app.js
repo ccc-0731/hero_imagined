@@ -86,6 +86,11 @@ document.addEventListener('DOMContentLoaded', () => {
       Array.from(form.elements).forEach(f=>{ if(f.name && f.value) data[f.name]=f.value });
       const resp = await fetch('/api/character',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({answers:data})});
       const j = await resp.json();
+      if (!resp.ok) {
+        alert(j.error || 'Please build the character before continuing!');
+        document.getElementById('character-output').textContent = '';
+        return;
+      }
       characterText = j.character;
       document.getElementById('character-output').textContent = characterText;
       checkDoneButtonState();
@@ -101,6 +106,11 @@ document.addEventListener('DOMContentLoaded', () => {
       const detected = document.getElementById('detected-topic')?.textContent || '';
       const resp = await fetch('/api/world',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({answers:data, detected:{topic:detected}})});
       const j = await resp.json();
+      if (!resp.ok) {
+        alert(j.error || 'Please build the world before continuing!');
+        document.getElementById('world-output').textContent = '';
+        return;
+      }
       worldText = j.world;
       document.getElementById('world-output').textContent = worldText;
       checkDoneButtonState();
@@ -179,6 +189,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Sequentially request hero image, background image, then BGM — updating checklist each time
       // 1) Hero scene
+      // First: extract hero name (if requested)
+      if (steps.find(s=>s.name==='Hero Name Extraction')){
+        updateStep('Hero Name Extraction','in-progress');
+        try{
+          const nresp = await fetch('/extract_hero_name',{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({character: characterText})});
+          const nj = await nresp.json();
+          if (nresp.ok && nj.hero_name){
+            storyData.hero_name = nj.hero_name;
+            updateStep('Hero Name Extraction','complete');
+          } else {
+            storyData.hero_name = storyData.hero_name || 'the hero';
+            updateStep('Hero Name Extraction','skipped');
+          }
+        }catch(err){
+          console.error('Hero name extraction error', err);
+          storyData.hero_name = storyData.hero_name || 'the hero';
+          updateStep('Hero Name Extraction','skipped');
+        }
+      }
+
+      // Now hero scene
       if (steps.find(s=>s.name==='Hero Scene Image')){
         updateStep('Hero Scene Image', 'in-progress');
         try{
@@ -222,7 +253,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (steps.find(s=>s.name==='Background Music')){
         updateStep('Background Music', 'in-progress');
         try{
-          const mresp = await fetch('/generate_bgm', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({world: worldText, character: characterText, hero_name: j.hero_name})});
+          const mresp = await fetch('/generate_bgm', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({world: worldText, character: characterText, hero_name: storyData.hero_name || j.hero_name})});
           const mj = await mresp.json();
           if (mj.audio_url){
             storyData.audio = mj.audio_url;
@@ -235,6 +266,26 @@ document.addEventListener('DOMContentLoaded', () => {
         }catch(err){
           console.error('BGM error', err);
           updateStep('Background Music','skipped');
+        }
+      }
+
+      // 4) Real-life analogy (deferred)
+      if (steps.find(s=>s.name==='Real-life Inspiration')){
+        updateStep('Real-life Inspiration','in-progress');
+        try{
+          const aresp = await fetch('/generate_analogy', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({hero_name: storyData.hero_name || j.hero_name, story: storyData.story})});
+          const aj = await aresp.json();
+          if (aj.analogy_html){
+            storyData.analogy = aj.analogy_md || '';
+            storyData.analogy_html = aj.analogy_html;
+            document.getElementById('analogy').innerHTML = aj.analogy_html;
+            updateStep('Real-life Inspiration','complete');
+          } else {
+            updateStep('Real-life Inspiration','skipped');
+          }
+        }catch(err){
+          console.error('Analogy error', err);
+          updateStep('Real-life Inspiration','skipped');
         }
       }
     });

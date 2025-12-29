@@ -37,7 +37,7 @@ def call_gemini_text(prompt, system=None):
 		client = genai.Client(api_key=GOOGLE_API_KEY)
 		response = client.models.generate_content(
 			model=GEMINI_TEXT_MODEL,
-			contents=prompt+'If there is Chinese, respond in Chinese (unless you are asked to prompt a music AI).'
+			contents=prompt
 		)
 		text = response.text if response else ''
 		return {'raw': text}
@@ -105,6 +105,7 @@ def generate_bgm_instrumental(world_description, character_description, filename
 			gem = run_with_timeout(lambda: call_gemini_text(prompt_req), timeout=20)
 			music_prompt = (gem.get('raw') if isinstance(gem, dict) else str(gem)) or ''
 			music_prompt = music_prompt.strip()
+			print(f"[DEBUG] Gemini BGM raw response (truncated): {music_prompt[:400]}")
 		except Exception as e:
 			print(f"[WARNING] Gemini music prompt generation failed: {e}")
 			music_prompt = ''
@@ -118,6 +119,7 @@ def generate_bgm_instrumental(world_description, character_description, filename
 				f"Tone: emotional, adventurous, atmospheric, warm, slightly whimsical. "
 				f"Focus on orchestral textures, light percussion, gentle strings."
 			)
+		print(f"[DEBUG] Music prompt used (truncated): {music_prompt[:400]}")
 
 		# ---- ElevenLabs compose endpoint --------------------------------
 		url = "https://api.elevenlabs.io/v1/music"
@@ -154,7 +156,7 @@ def generate_bgm_instrumental(world_description, character_description, filename
 # ----------------------
 # Helpers for agent workflow
 # ----------------------
-def run_with_timeout(fn, *args, timeout=60, **kwargs):
+def run_with_timeout(fn, *args, timeout=80, **kwargs):
 	"""Run function in a separate thread and raise TimeoutError if it exceeds timeout seconds."""
 	with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
 		future = ex.submit(fn, *args, **kwargs)
@@ -190,26 +192,39 @@ def extract_hero_name(character, timeout=30):
 		return ''
 
 
-def generate_visual_prompt_and_image(world_text, prefix, timeout=40):
-	"""Return (prompt_text, image_url_or_None)."""
+def generate_visual_prompt_and_image(world_text, story_text, prefix, timeout=80):
+	"""Return (prompt_text, image_url_or_None).
+	The Gemini prompt will be asked to extract the story setting from the story
+	and world description and produce a single visual prompt suitable for a
+	Studio Ghibli-style illustration.
+	"""
 	try:
 		prompt_req = (
-			f"Generate a detailed visual description prompt for a Studio Ghibli-style fantasy background."
-			f" Describe landscape, atmosphere, colors, mood and cinematic quality based on: {world_text}."
-			" Output only the visual prompt in one paragraph."
+			"Extract the cinematic setting details from the world description and the story excerpt below,"
+			" then produce ONE concise visual prompt suitable for a Studio Ghibli-style illustration."
+			" Include atmosphere, colors, landmarks, lighting, and mood; avoid mentioning specific copyrighted characters."
+			" Output only the final visual prompt in one paragraph."
+			f"\n\nWorld description:\n{world_text}\n\nStory excerpt:\n{(story_text)}\n\n"
 		)
 		def _gen_prompt():
 			resp = call_gemini_text(prompt_req)
-			return resp.get('raw', '').strip()
+			raw = resp.get('raw', '')
+			print(f"[DEBUG] Gemini visual raw response (truncated): {raw[:400]}")
+			return raw.strip()
 
 		visual_prompt = run_with_timeout(_gen_prompt, timeout=timeout)
 		if not visual_prompt:
+			print('[DEBUG] Visual prompt empty')
 			return None, None
+
+		print(f"[DEBUG] Visual prompt generated: {visual_prompt[:300]}")
 
 		fname = f"{prefix}_{uuid.uuid4().hex[:8]}.png"
 		# generate image (may raise)
+		print(f"[DEBUG] Calling image generator with prompt (truncated): {visual_prompt[:200]}")
 		img_path = run_with_timeout(lambda: call_gemini_image(visual_prompt, fname), timeout=60)
 		img_url = url_for('static', filename=f'output/{os.path.basename(img_path)}')
+		print(f"[DEBUG] Image saved to: {img_path}")
 		return visual_prompt, img_url
 	except Exception as e:
 		print(f"[WARNING] Visual generation failed: {e}")
@@ -225,14 +240,19 @@ def generate_hero_scene_and_image(character, story_excerpt, timeout=60):
 		)
 		def _gen():
 			resp = call_gemini_text(prompt_req)
-			return resp.get('raw', '').strip()
+			raw = resp.get('raw', '')
+			print(f"[DEBUG] Gemini hero-scene raw response (truncated): {raw[:400]}")
+			return raw.strip()
 
 		hero_prompt = run_with_timeout(_gen, timeout=timeout)
 		if not hero_prompt:
 			return None, None
+		print(f"[DEBUG] Hero scene prompt generated: {hero_prompt[:300]}")
 		fname = f"hero_scene_{uuid.uuid4().hex[:8]}.png"
+		print(f"[DEBUG] Calling image generator for hero scene with prompt (truncated): {hero_prompt[:200]}")
 		img_path = run_with_timeout(lambda: call_gemini_image(hero_prompt, fname), timeout=60)
 		img_url = url_for('static', filename=f'output/{os.path.basename(img_path)}')
+		print(f"[DEBUG] Hero image saved to: {img_path}")
 		return hero_prompt, img_url
 	except Exception as e:
 		print(f"[WARNING] Hero scene generation failed: {e}")
@@ -288,15 +308,15 @@ def api_generate_questions():
 	
 	# Generate character questions
 	char_q_prompt = f"""Based on the user wanting to create a hero described as: "{user_prompt}"
-In a {detected_topic} setting, generate 4-5 basic and generic questions to help design a character. The questions should be no longer than a sentence, and the answer is expected to be very brief.
-For each question, provide:
-1. The question (numbered)
-2. An inspirational example answer in parenthesis, (e.g. like this, including the).
+		In a {detected_topic} setting, generate 4-5 basic and generic questions to help design a character. The questions should be no longer than a sentence, and the answer is expected to be very brief.
+		For each question, provide:
+		1. The question (numbered)
+		2. An inspirational example answer in parenthesis, (e.g. like this, including the).
 
-Format as a JSON object like: {{"questions": [{{"number": 1, "question": "...", "example": "..."}}]}}
-Make questions cover: age, gender, appearance, powers, personality, fears, goals, quirks, backstory, etc.
+		Format as a JSON object like: {{"questions": [{{"number": 1, "question": "...", "example": "..."}}]}}
+		Make questions cover: age, gender, appearance, powers, personality, fears, goals, quirks, backstory, etc.
 
-IMPORTANT: Return ONLY valid JSON, no additional text before or after."""
+		IMPORTANT: Return ONLY valid JSON, no additional text before or after."""
 	
 	char_resp = call_gemini_text(char_q_prompt)
 	char_questions = []
@@ -319,16 +339,16 @@ IMPORTANT: Return ONLY valid JSON, no additional text before or after."""
 	
 	# Generate world building questions
 	world_q_prompt = f"""Based on a {detected_topic} world for the hero: "{user_prompt}"
-Generate exactly 2-3 simple and generic world-building questions. The questions and expected answers should be no longer than a sentence.
-For each question, provide:
-1. The question (numbered)
-2. An inspirational example answer in parenthesis, (e.g. like this, including the e.g.). 
+		Generate exactly 2-3 simple and generic world-building questions. The questions and expected answers should be no longer than a sentence.
+		For each question, provide:
+		1. The question (numbered)
+		2. An inspirational example answer in parenthesis, (e.g. like this, including the e.g.). 
 
-Format as JSON like: {{"questions": [{{"number": 1, "question": "...", "example": "..."}}]}}
-Make questions cover: mythology, creatures, history, magic/tech, culture, landmarks, etc.
+		Format as JSON like: {{"questions": [{{"number": 1, "question": "...", "example": "..."}}]}}
+		Make questions cover: mythology, creatures, history, magic/tech, culture, landmarks, etc.
 
-IMPORTANT: Return ONLY valid JSON, no additional text before or after."""
-	
+		IMPORTANT: Return ONLY valid JSON, no additional text before or after."""
+			
 	world_resp = call_gemini_text(world_q_prompt)
 	world_questions = []
 	try:
@@ -359,9 +379,13 @@ IMPORTANT: Return ONLY valid JSON, no additional text before or after."""
 def api_character():
 	data = request.json or {}
 	answers = data.get('answers', {})
+	# If no answers provided, return an error so frontend can prompt the user
+	if not answers or not any(str(v).strip() for v in answers.values()):
+		return jsonify({'error': 'Please build the character before continuing!'}), 400
+
 	# Compose a prompt for Gemini
-	prompt = 'Create a paragraph describing a complete character profile using these traits, including giving the character a suitable name:\n'
-	for k,v in answers.items():
+	prompt = 'Create a paragraph describing a complete character profile using these traits, including giving the character a suitable name.\n'
+	for k, v in answers.items():
 		prompt += f"{k}: {v}\n"
 	resp = call_gemini_text(prompt)
 	# If Gemini returned a raw string, use it; otherwise serialize
@@ -374,8 +398,12 @@ def api_world():
 	data = request.json or {}
 	answers = data.get('answers', {})
 	detected = data.get('detected', {})
+	# If no answers provided, inform the user to build the world first
+	if not answers or not any(str(v).strip() for v in answers.values()):
+		return jsonify({'error': 'Please build the world before continuing!'}), 400
+
 	prompt = 'Based on the world type: ' + str(detected.get('topic','unknown')) + ', give the world a name and create a paragraph describe the setting of this world:\n'
-	for k,v in answers.items():
+	for k, v in answers.items():
 		prompt += f"{k}: {v}\n"
 	resp = call_gemini_text(prompt)
 	world_text = resp.get('raw') or json.dumps(resp)
@@ -408,38 +436,27 @@ def generate_story():
 		result['error'] = f"Story generation failed: {str(e)}"
 		return jsonify(result), 500
 
-	# Step 2: Extract Hero Name
-	hero_name = extract_hero_name(character) or 'the hero'
-	if hero_name:
-		print(f"[INFO] Hero name extracted: {hero_name}")
-	else:
-		print("[INFO] Using default hero name")
+	# Hero name extraction moved to dedicated endpoint to reduce memory and allow
+	# the frontend to request it separately when ready.
+	hero_name = ''
 
 	# Note: Image and BGM generation moved to dedicated endpoints to reduce memory
 	# and allow the frontend to request them separately. They will be performed
 	# after returning the core story payload.
 
-	# Step 6: Real-life analogy (optional, produce Markdown)
-	try:
-		analogy_md = generate_analogy_text(hero_name, result['story'], timeout=30)
-		result['analogy'] = analogy_md
-		if analogy_md:
-			print("[SUCCESS] Analogy generated (markdown)")
-		else:
-			print("[INFO] Analogy generation returned empty")
-	except Exception as e:
-		print(f"[WARNING] Analogy generation failed: {e}")
-		result['analogy'] = None
+	# Real-life analogy generation is deferred to a separate endpoint so the
+	# frontend can request it after images/audio or when the user wants it.
+	result['analogy'] = None
 
 	# Add progress tracking info
 	# Mark heavy tasks as pending so the frontend can request them individually
 	result['steps'] = [
 		{'name': 'Story Generation', 'status': 'complete'},
-		{'name': 'Hero Name Extraction', 'status': 'complete'},
+		{'name': 'Hero Name Extraction', 'status': 'pending'},
 		{'name': 'Background Image', 'status': 'pending'},
 		{'name': 'Hero Scene Image', 'status': 'pending'},
 		{'name': 'Background Music', 'status': 'pending'},
-		{'name': 'Real-life Inspiration', 'status': 'complete' if result['analogy'] else 'skipped'}
+		{'name': 'Real-life Inspiration', 'status': 'pending'}
 	]
 	result['character'] = character
 	result['world'] = world
@@ -473,7 +490,8 @@ def generate_image():
 
 	try:
 		if itype == 'background':
-			prompt, img_url = generate_visual_prompt_and_image(world, 'background')
+			# Pass world, optional story excerpt (may be empty), and a prefix for filename
+			prompt, img_url = generate_visual_prompt_and_image(world, story_excerpt or '', 'background')
 		elif itype == 'hero':
 			prompt, img_url = generate_hero_scene_and_image(character, story_excerpt)
 		else:
@@ -495,13 +513,48 @@ def generate_bgm():
 	data = request.json or {}
 	world = data.get('world', '')
 	character = data.get('character', '')
-	hero_name = data.get('hero_name', 'the hero')
 
 	try:
 		audio_file = f"bgm_{uuid.uuid4().hex[:8]}.mp3"
 		audio_path, prompt_used = run_with_timeout(lambda: generate_bgm_instrumental(world, character, audio_file), timeout=60)
 		audio_url = url_for('static', filename=f'output/{os.path.basename(audio_path)}')
 		return jsonify({'audio_url': audio_url, 'prompt': prompt_used})
+	except Exception as e:
+		return jsonify({'error': str(e)}), 500
+
+
+@app.route('/extract_hero_name', methods=['POST'])
+def extract_hero_name_endpoint():
+	"""Return the hero name extracted from the character description."""
+	data = request.json or {}
+	character = data.get('character', '')
+	if not character or not str(character).strip():
+		return jsonify({'error': 'No character description provided'}), 400
+	try:
+		# `extract_hero_name` already uses a timeout internally
+		name = extract_hero_name(character)
+		name = name or 'the hero'
+		return jsonify({'hero_name': name})
+	except Exception as e:
+		return jsonify({'error': str(e)}), 500
+
+
+@app.route('/generate_analogy', methods=['POST'])
+def generate_analogy_endpoint():
+	"""Generate the real-life analogy based on hero name and story. Returns Markdown and HTML."""
+	data = request.json or {}
+	hero_name = data.get('hero_name', '')
+	story = data.get('story', '')
+	if not story or not str(story).strip():
+		return jsonify({'error': 'No story provided'}), 400
+	try:
+		analogy_md = generate_analogy_text(hero_name or 'the hero', story, timeout=30)
+		analogy_html = ''
+		try:
+			analogy_html = md.markdown(analogy_md or '', extensions=['fenced_code', 'tables', 'nl2br'])
+		except Exception:
+			analogy_html = '<pre>' + (analogy_md or '') + '</pre>'
+		return jsonify({'analogy_md': analogy_md, 'analogy_html': analogy_html})
 	except Exception as e:
 		return jsonify({'error': str(e)}), 500
 
@@ -518,7 +571,7 @@ def generate_pdf():
 	hero_name = data.get('hero_name', 'The Hero')
 	analogy = data.get('analogy', '')
 	images = data.get('images', [])
-	# Use first image (world/background) for page background, not the hero image
+	# Use second image (world/background) for page background, not the hero image
 	bg_image_path = images[1] if images and len(images) > 1 else None
 	
 	try:
@@ -606,7 +659,7 @@ def generate_pdf():
 					img = img.convert('RGBA')
 				
 				r, g, b, a = img.split()
-				a = a.point(lambda p: int(p * 0.15))
+				a = a.point(lambda p: int(p * 0.05))
 				img.putalpha(a)
 				
 				img_buffer = BytesIO()
