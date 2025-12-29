@@ -171,7 +171,8 @@ def run_with_timeout(fn, *args, timeout=80, **kwargs):
 
 def generate_story_text(character, world, timeout=60):
 	prompt = (
-		"Write an engaging ~600-word short story about an adventure of this hero in the world."
+		"Write an engaging ~800-word short story about an adventure of this hero in the world."
+		" The story should have a clear beginning, middle, climax and end, with detailed descriptions and emotional depth."
 		" Use cinematic, slightly whimsical style. Focus on deep philosophical ideas tied to the human condition."
 		" Respond in Markdown. Use bold and italics if necessary, but don't overuse subheadings (the story shouldn't have them)."
 		f"\n\nCharacter:\n{character}\n\nWorld:\n{world}\n"
