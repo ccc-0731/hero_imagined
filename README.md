@@ -4,7 +4,7 @@
 
 Hero Imagined guides you from a spark of imagination to a fully illustrated, downloadable storybook with an optional short soundtrack and practical, real-world inspiration.
 
-Built with Flask and a set of small, cooperative agents that coordinate Google Gemini (text + image) and ElevenLabs (audio), the project combines narrative, cinematic illustrations, and audio into a single interactive experience.
+Built with Flask and a set of small, cooperative agents that coordinate Google Gemini (text + image) and ElevenLabs (music), the project combines narrative, cinematic illustrations, and audio into a single interactive experience.
 
 ---
 
@@ -23,12 +23,12 @@ Built with Flask and a set of small, cooperative agents that coordinate Google G
     - Takes the finalized character blueprint and world description and composes a cinematic ~1000-word story using Google Gemini.
 
 4. Agent 4 — Storyteller Suite (post-story)
-    - 4a — Background Illustrator
-       - Generates a landscape/mood background image (no character). Output is `images[0]`.
     - 4a — Hero Scene Illustrator
-       - Generates a cinematic hero action scene (the hero in-frame). Output is `images[1]`.
+       - Generates a cinematic hero action scene (the hero in-frame). Output is `images[0]`.
+    - 4a — Background Illustrator
+       - Generates a landscape/mood background image (no character). Output is `images[1]`.
     - 4b — Audio BGM Generator (optional)
-       - Gemini writes short lyrics; ElevenLabs (sound-generation) produces a ~30s BGM. Downloadable MP3 is provided.
+       - Gemini writes short lyrics; ElevenLabs (sound-generation) produces a ~60s BGM. Downloadable MP3 is provided.
     - 4c — Real-Life Reflection
        - Gemini analyzes the story and suggests real-world steps and inspiration; shown in a separate "In Real Life" panel.
 
@@ -39,7 +39,7 @@ Built with Flask and a set of small, cooperative agents that coordinate Google G
 - Index page: user types a short hero idea (Agent 1 runs).
 - Builder page: two columns with the Character and World forms. A shared "Done" button submits both, triggering Agent 3 (story) and the Storyteller Suite (images + audio).
 - Final page: shows story text, two generated images (background shown as UI background; hero scene shown in content), an audio player (if generated), and a separate "In Real Life" panel.
-- Download: the user can download a multi-page PDF of the story. The PDF uses the world background as the translucent page background (15% opacity) and includes the hero scene illustration inline.
+- Download: the user can download a multi-page PDF of the story. The PDF uses the world background as the translucent page background (25% opacity) and includes the hero scene illustration inline.
 
 ---
 
@@ -63,8 +63,8 @@ Create a `.env` file at project root and add your keys:
 
 ```bash
 GEMINI_API_KEY=your_google_api_key_here
-GEMINI_TEXT_MODEL=gemini-2.0-flash
-GEMINI_IMAGE_MODEL=gemini-2.0-flash
+GEMINI_TEXT_MODEL=gemini-2.5-flash
+GEMINI_IMAGE_MODEL=gemini-2.5-flash-image
 ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
 ```
 
@@ -77,7 +77,7 @@ hero_imagined/
 ├── app.py                # Flask server + routes implementing agents and PDF export
 ├── requirements.txt      # Python dependencies
 ├── .env                  # API keys (local)
-├── templates/            # Jinja2 templates (index, builder, final)
+├── templates/            # Html templates (index, builder, final)
 └── static/
       ├── js/
       ├── css/
@@ -90,7 +90,7 @@ hero_imagined/
 
 - The server expects generated images in the form `images = [background_url, hero_scene_url]`.
 - The PDF generator:
-   - Uses the second image (`images[1]`) as the page background and applies a 15% alpha so story text remains readable on top of the art. (Currently not really working)
+   - Uses the second image (`images[1]`) as the page background and applies a 25% alpha so story text remains readable on top of the art. (Currently not really working)
    - Embeds the hero scene (`images[0]`) inside the PDF as an inline image with its own caption.
    - Falls back gracefully if images are missing (skips background or hero image if not available).
 
